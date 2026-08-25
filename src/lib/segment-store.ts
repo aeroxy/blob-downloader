@@ -34,6 +34,8 @@ export class SegmentStore {
   private readonly chunks: Uint8Array[] = []
   private bytes = 0
   private droppedBytes = 0
+  /** Sticky once the cap is hit; see `append`. */
+  private stopped = false
 
   constructor(private readonly maxBytes: number = DEFAULT_MAX_BYTES) {}
 
@@ -69,7 +71,13 @@ export class SegmentStore {
         : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
 
     if (view.byteLength === 0) return
-    if (this.bytes + view.byteLength > this.maxBytes) {
+    // The first segment that doesn't fit ends the capture for good, rather than
+    // being skipped so a smaller later one can take its place. What is kept has
+    // to be a contiguous prefix: a file cut short plays up to the cut, whereas
+    // one with a hole in the middle hands the decoder fragments at timestamps it
+    // has no header for. Not "ran out of room" — deliberately stopped.
+    if (this.stopped || this.bytes + view.byteLength > this.maxBytes) {
+      this.stopped = true
       this.droppedBytes += view.byteLength
       return
     }
@@ -88,5 +96,6 @@ export class SegmentStore {
     this.chunks.length = 0
     this.bytes = 0
     this.droppedBytes = 0
+    this.stopped = false
   }
 }

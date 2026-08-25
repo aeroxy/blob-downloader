@@ -47,7 +47,7 @@ async function paintBadge(tabId: number, frames: FrameInventory[]): Promise<void
 }
 
 function put(tabId: number, frame: FrameInventory): Promise<void> {
-  writes = writes.then(async () => {
+  const write = writes.then(async () => {
     const frames = await read(tabId)
     const at = frames.findIndex((f) => f.frameId === frame.frameId)
     if (at === -1) frames.push(frame)
@@ -55,7 +55,12 @@ function put(tabId: number, frame: FrameInventory): Promise<void> {
     await chrome.storage.session.set({ [keyFor(tabId)]: frames })
     await paintBadge(tabId, frames)
   })
-  return writes.then(() => undefined)
+  // What the *queue* waits on is this write's outcome swallowed: chaining the
+  // next write onto a rejection would skip it, so a single transient storage
+  // failure would silence every inventory for the life of the worker. The
+  // caller still gets the rejection, and still reports it.
+  writes = write.catch(() => undefined)
+  return write
 }
 
 /** A navigated-away or closed tab's blobs are gone with its document. */

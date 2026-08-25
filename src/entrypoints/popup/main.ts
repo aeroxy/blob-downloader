@@ -14,8 +14,8 @@ const POLL_MS = 1000
 const summary = document.getElementById('summary')!
 const list = document.getElementById('list')!
 
-/** Re-rendering under a click would replace the button mid-save. */
-let saving = false
+/** Re-rendering under a click would replace the button mid-save — of which there can be more than one. */
+let saving = 0
 let lastRendered = ''
 
 function empty(): HTMLElement {
@@ -71,7 +71,7 @@ function row(item: Item, frameId: number, tabId: number): HTMLElement {
   button.disabled = !item.saveable
 
   button.addEventListener('click', async () => {
-    saving = true
+    saving++
     button.disabled = true
     button.textContent = 'Saving…'
     try {
@@ -98,7 +98,7 @@ function row(item: Item, frameId: number, tabId: number): HTMLElement {
       note.textContent = `Extension not reachable: ${(e as Error).message}`
       body.append(note)
     } finally {
-      saving = false
+      saving--
     }
   })
 
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
   const tabId = tab.id
 
   const tick = async (): Promise<void> => {
-    if (saving) return
+    if (saving > 0) return
     let result: ListResult
     try {
       result = (await chrome.runtime.sendMessage({ type: 'LIST', tabId } satisfies Request)) as ListResult

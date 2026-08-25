@@ -22,6 +22,27 @@ import {
 /** A prepare is a click in the popup; if the page hasn't answered by now it isn't going to. */
 const PREPARE_TIMEOUT_MS = 20_000
 
+/**
+ * A `prepared` reply, believed only as far as it can be checked.
+ *
+ * The hook shares its document with the page, so the page can dispatch
+ * `blobdl:event` too — and a forged reply would travel from here to
+ * `chrome.downloads`, which fetches with the extension's privileges rather than
+ * the page's. The one thing the hook ever mints is a `blob:` URL for this
+ * frame's own origin, so anything else is not a reply, whatever it claims.
+ */
+function checked(result: PrepareResult): PrepareResult {
+  const malformed: PrepareResult = { ok: false, error: 'The page sent a malformed reply.' }
+  if (typeof result !== 'object' || result === null) return malformed
+  if (result.ok !== true) {
+    return result.ok === false && typeof result.error === 'string' ? result : malformed
+  }
+  if (typeof result.url !== 'string' || typeof result.filename !== 'string') return malformed
+  // `blob:null/…` for an opaque origin, which is the form a sandboxed frame's
+  // own URLs take too — it is still that frame and nothing else.
+  return result.url.startsWith(`blob:${location.origin}/`) ? result : malformed
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_start',
@@ -52,14 +73,15 @@ export default defineContentScript({
       }
 
       if (message.type === 'inventory') {
-        push(message.items)
+        if (Array.isArray(message.items)) push(message.items)
         return
       }
 
+      if (message.type !== 'prepared' || typeof message.requestId !== 'string') return
       const settle = pending.get(message.requestId)
       if (!settle) return
       pending.delete(message.requestId)
-      settle(message.result)
+      settle(checked(message.result))
     })
 
     chrome.runtime.onMessage.addListener((request: FrameRequest, _sender, sendResponse) => {

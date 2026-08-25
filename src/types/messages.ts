@@ -3,7 +3,7 @@
  *
  *   page (MAIN world)  ⇄  bridge (ISOLATED world)   CustomEvent, JSON strings
  *   bridge             →  background                PUSH
- *   popup              ⇄  background                LIST, DOWNLOAD
+ *   popup              ⇄  background                LIST, SAVE
  *
  * Two hops, because the two halves can each only do half the job: the hook
  * lives in the page's own world, which is the only place a page-created `Blob`
@@ -21,7 +21,7 @@ export type Kind =
 
 /** One saveable thing, as the popup shows it. Never carries bytes. */
 export interface Item {
-  /** Stable for the lifetime of the page; the handle `DOWNLOAD` names. */
+  /** Stable for the lifetime of the page; the handle `SAVE` names. */
   id: string
   kind: Kind
   /** The MIME type the page declared, `codecs=…` and all. */

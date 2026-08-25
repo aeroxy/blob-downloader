@@ -41,14 +41,14 @@ describe('SegmentStore', () => {
     expect(await read(store.assemble(''))).toEqual([4, 5])
   })
 
-  test('drops overshoot from the end, keeping the init segment that makes the file readable', async () => {
+  test('stops at the cap and stays stopped, so what is kept is a prefix and not a file with a hole', async () => {
     const store = new SegmentStore(4)
     store.append(bytes(1, 2, 3))
     store.append(bytes(4, 5)) // would exceed the cap
-    store.append(bytes(6)) // still fits
+    store.append(bytes(6)) // would fit, but the file has already ended
     expect(store.truncated).toBe(true)
-    expect(store.dropped).toBe(2)
-    expect(await read(store.assemble(''))).toEqual([1, 2, 3, 6])
+    expect(store.dropped).toBe(3)
+    expect(await read(store.assemble(''))).toEqual([1, 2, 3])
   })
 
   test('an empty append is not a segment', () => {

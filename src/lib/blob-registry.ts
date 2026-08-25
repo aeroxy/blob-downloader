@@ -144,6 +144,10 @@ function retain(entry: BlobEntry, blob: Blob): void {
 }
 
 function forget(entry: BlobEntry): void {
+  // Before `release`, which drops the only key we have for this. A mapping left
+  // pointing at a dead entry would make the next `noteBlob` for the same Blob
+  // update a row the popup no longer lists, instead of starting a live one.
+  if (entry.blob !== null) blobsByObject.delete(entry.blob)
   release(entry)
   for (const url of entry.liveUrls) blobsByUrl.delete(url)
   blobEntries.delete(entry.id)
@@ -161,7 +165,9 @@ function trim(): void {
 
 function noteBlob(url: string, blob: Blob): void {
   const existing = blobsByObject.get(blob)
-  if (existing) {
+  // A hit on an entry `trim()` already dropped is stale — for a released Blob
+  // there was no key left to unmap with — so it starts again as a new row.
+  if (existing && blobEntries.has(existing.id)) {
     existing.liveUrls.add(url)
     blobsByUrl.set(url, existing)
     notify()
@@ -461,8 +467,14 @@ export async function prepare(id: string): Promise<{ url: string; filename: stri
     const url = [...entry.liveUrls][0]
     if (!url) throw new Error('The page revoked this URL and the bytes were not retained.')
     // Same world that minted the URL, so this resolves — where a content script
-    // or the service worker would get an opaque failure.
-    blob = await (await fetch(url)).blob()
+    // or the service worker would get an opaque failure. It can still lose a
+    // race with the page's own revoke, and then the bare `TypeError` says
+    // nothing; the reason is always the same one.
+    try {
+      blob = await (await fetch(url)).blob()
+    } catch {
+      throw new Error('The page revoked this URL while it was being read.')
+    }
   }
   return mint(blob, blobName(entry))
 }
@@ -558,11 +570,15 @@ export function install(): void {
     this: SourceBuffer,
     data: ArrayBuffer | ArrayBufferView,
   ): void {
+    // The page's own call first: an append the browser refuses outright — a
+    // SourceBuffer mid-update, a MediaSource already closed — never reaches the
+    // file, so recording it would put a segment in the store that no player
+    // ever saw.
+    nativeAppendBuffer.call(this, data as BufferSource)
     try {
       noteAppend(this, data)
     } catch {
       /* as above */
     }
-    return nativeAppendBuffer.call(this, data as BufferSource)
   }
 }
