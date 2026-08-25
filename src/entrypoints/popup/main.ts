@@ -70,6 +70,20 @@ function row(item: Item, frameId: number, tabId: number): HTMLElement {
   button.textContent = 'Save'
   button.disabled = !item.saveable
 
+  // One line for whatever went wrong, reused: a row that fails twice should say
+  // why once, not stack a second copy under the first.
+  let failure: HTMLElement | null = null
+  const failed = (message: string): void => {
+    if (failure === null) {
+      failure = document.createElement('div')
+      failure.className = 'note warn'
+      body.append(failure)
+    }
+    failure.textContent = message
+    button.disabled = false
+    button.textContent = 'Retry'
+  }
+
   button.addEventListener('click', async () => {
     saving++
     button.disabled = true
@@ -81,22 +95,10 @@ function row(item: Item, frameId: number, tabId: number): HTMLElement {
         frameId,
         id: item.id,
       } satisfies Request)) as SaveResult
-      button.textContent = result.ok ? 'Saved' : 'Failed'
-      if (!result.ok) {
-        const note = document.createElement('div')
-        note.className = 'note warn'
-        note.textContent = result.error
-        body.append(note)
-        button.disabled = false
-        button.textContent = 'Retry'
-      }
+      if (result.ok) button.textContent = 'Saved'
+      else failed(result.error)
     } catch (e) {
-      button.textContent = 'Retry'
-      button.disabled = false
-      const note = document.createElement('div')
-      note.className = 'note warn'
-      note.textContent = `Extension not reachable: ${(e as Error).message}`
-      body.append(note)
+      failed(`Extension not reachable: ${(e as Error).message}`)
     } finally {
       saving--
     }

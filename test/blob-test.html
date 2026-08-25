@@ -91,21 +91,32 @@
           }
           log('added a SourceBuffer')
 
-          let appended = 0
+          // One append at a time, driven by updateend: appendBuffer throws while
+          // the buffer is still updating, so a fixed timer races the parser and
+          // the throw is the test's own fault rather than a finding. `accepted`
+          // counts the appends that did not throw — the extension captures
+          // exactly those, so it is the number to compare the popup against.
+          let attempted = 0
+          let accepted = 0
           const push = () => {
-            if (appended >= 5) {
-              log('appended 5 segments, 5 x 4096 = 20480 bytes')
+            if (attempted >= 5) {
+              log('appended ' + accepted + ' of 5 segments, ' + accepted * 4096 + ' bytes')
               return
             }
-            const segment = new Uint8Array(4096).fill(appended + 1)
+            const segment = new Uint8Array(4096).fill(attempted + 1)
+            attempted++
             try {
               buffer.appendBuffer(segment)
+              accepted++
             } catch (e) {
-              log('append ' + appended + ' threw (expected, the bytes are not real media): ' + e.name)
+              log('append ' + attempted + ' threw (expected, the bytes are not real media): ' + e.name)
+              // No updateend is coming for an append that never started.
+              setTimeout(push, 120)
             }
-            appended++
-            setTimeout(push, 120)
           }
+          // Fires after the parser has finished with a segment, including one it
+          // rejected — so the chain keeps moving on unplayable bytes too.
+          buffer.addEventListener('updateend', push)
           push()
         })
       }
