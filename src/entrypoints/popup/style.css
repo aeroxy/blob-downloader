@@ -1,0 +1,145 @@
+/* Chrome renders the popup in the browser's theme, not the page's. */
+:root {
+  --bg: #ffffff;
+  --fg: #18181b;
+  --dim: #71717a;
+  --line: #e4e4e7;
+  --accent: #7c3aed;
+  --accent-fg: #ffffff;
+  --warn: #b45309;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181b;
+    --fg: #f4f4f5;
+    --dim: #a1a1aa;
+    --line: #303036;
+    --accent: #a78bfa;
+    --accent-fg: #1c1032;
+    --warn: #fbbf24;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 400px;
+  max-height: 560px;
+  margin: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, sans-serif;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  padding: 12px 14px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#summary {
+  margin: 2px 0 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.origin {
+  padding: 8px 14px 2px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.name {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta,
+.note {
+  margin-top: 2px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.note.warn {
+  color: var(--warn);
+}
+
+.kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+button {
+  flex: none;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:hover:not([disabled]) {
+  filter: brightness(1.08);
+}
+
+button[disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.empty {
+  padding: 16px 14px 20px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.empty p {
+  margin: 0 0 8px;
+}
+
+.empty strong {
+  color: var(--fg);
+  font-weight: 600;
+}

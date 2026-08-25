@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Blob Downloader test page</title>
+    <style>
+      body { font: 14px system-ui; padding: 24px; max-width: 760px; }
+      button { font: inherit; padding: 6px 12px; margin: 0 6px 6px 0; }
+      pre { background: #f4f4f5; padding: 10px; font-size: 12px; }
+      video { width: 320px; background: #000; }
+    </style>
+  </head>
+  <body>
+    <h1>Blob Downloader test page</h1>
+
+    <h2>1 &mdash; real Blobs</h2>
+    <button id="plain">Blob, URL kept</button>
+    <button id="revoked">Blob, URL revoked immediately</button>
+    <button id="file">File (named)</button>
+    <button id="image">PNG shown in an &lt;img&gt;</button>
+    <div id="images"></div>
+
+    <h2>2 &mdash; MediaSource stream</h2>
+    <button id="mse">Start a MediaSource and append segments</button>
+    <video id="video" controls muted></video>
+
+    <pre id="log"></pre>
+
+    <script>
+      const log = (msg) => {
+        document.getElementById('log').textContent += msg + '\n'
+      }
+
+      // A blob whose URL stays live: saveable through the URL itself.
+      document.getElementById('plain').onclick = () => {
+        const blob = new Blob(['plain text blob, ' + 'x'.repeat(2000)], { type: 'text/plain' })
+        const url = URL.createObjectURL(blob)
+        log('created ' + url + ' (' + blob.size + ' bytes, kept)')
+      }
+
+      // The common hygienic pattern, and the one that loses the data unless
+      // something else kept a reference to the Blob.
+      document.getElementById('revoked').onclick = () => {
+        const blob = new Blob([JSON.stringify({ revoked: true, pad: 'y'.repeat(500) })], {
+          type: 'application/json',
+        })
+        const url = URL.createObjectURL(blob)
+        URL.revokeObjectURL(url)
+        log('created and immediately revoked ' + url + ' (' + blob.size + ' bytes)')
+      }
+
+      document.getElementById('file').onclick = () => {
+        const file = new File(['csv,data\n1,2\n'], 'report.csv', { type: 'text/csv' })
+        const url = URL.createObjectURL(file)
+        log('created ' + url + ' for File "report.csv"')
+      }
+
+      document.getElementById('image').onclick = async () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 120
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#7c3aed'
+        ctx.fillRect(0, 0, 120, 120)
+        ctx.fillStyle = '#fff'
+        ctx.font = '20px system-ui'
+        ctx.fillText('blob', 30, 66)
+        const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'))
+        const img = document.createElement('img')
+        img.src = URL.createObjectURL(blob)
+        document.getElementById('images').append(img)
+        log('created a PNG blob URL in an <img> (' + blob.size + ' bytes)')
+      }
+
+      // A MediaSource, driven by hand. The bytes are not real media — the point
+      // is whether appendBuffer is observed and accumulated, which happens
+      // before the decoder ever sees them.
+      document.getElementById('mse').onclick = () => {
+        const mediaSource = new MediaSource()
+        const video = document.getElementById('video')
+        const url = URL.createObjectURL(mediaSource)
+        video.src = url
+        log('created MediaSource URL ' + url)
+
+        mediaSource.addEventListener('sourceopen', () => {
+          let buffer
+          try {
+            buffer = mediaSource.addSourceBuffer('video/webm; codecs="vp8"')
+          } catch (e) {
+            log('addSourceBuffer failed: ' + e.message)
+            return
+          }
+          log('added a SourceBuffer')
+
+          let appended = 0
+          const push = () => {
+            if (appended >= 5) {
+              log('appended 5 segments, 5 x 4096 = 20480 bytes')
+              return
+            }
+            const segment = new Uint8Array(4096).fill(appended + 1)
+            try {
+              buffer.appendBuffer(segment)
+            } catch (e) {
+              log('append ' + appended + ' threw (expected, the bytes are not real media): ' + e.name)
+            }
+            appended++
+            setTimeout(push, 120)
+          }
+          push()
+        })
+      }
+    </script>
+  </body>
+</html>
