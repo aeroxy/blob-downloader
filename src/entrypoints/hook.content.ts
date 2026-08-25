@@ -23,6 +23,8 @@ const PUSH_THROTTLE_MS = 500
  * the pages — nearly all of them — that have no MediaSource.
  */
 const GROWTH_POLL_MS = 2000
+/** Page-global, because a re-injected copy of this module gets its own module state. */
+const MARKER = '__blobdlInstalled__'
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -35,6 +37,17 @@ export default defineContentScript({
   noScriptStartedPostMessage: true,
 
   main() {
+    // A second injection — a development reload, or an `executeScript` over the
+    // declared script — re-evaluates this module with fresh state, so the
+    // registry's own idempotence guard never sees the first one. Two of
+    // everything below means every segment counted twice and two URLs minted
+    // per save, so the marker has to live where both copies can see it. Not
+    // enumerable: the patches are already discoverable by a page that looks, but
+    // there is no reason to advertise.
+    const world = globalThis as Record<string, unknown>
+    if (world[MARKER]) return
+    Object.defineProperty(world, MARKER, { value: true })
+
     install()
 
     const emit = (event: PageEvent): void => {

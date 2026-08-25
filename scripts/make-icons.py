@@ -37,9 +37,12 @@ Four decisions worth keeping:
   light one, so neither works alone.
 """
 
+import os
+
 from PIL import Image, ImageDraw
 
 OUT = "public/assets"
+os.makedirs(OUT, exist_ok=True)
 SS = 8  # supersample factor; downsampled with LANCZOS for clean edges
 
 ACCENT = (139, 92, 246)   # #8b5cf6
