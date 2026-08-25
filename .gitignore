@@ -1,0 +1,8 @@
+refs/
+node_modules/
+.output/
+.wxt/
+.vscode/
+stats.html
+*.log
+.DS_Store
