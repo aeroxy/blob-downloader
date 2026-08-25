@@ -1,0 +1,30 @@
+{
+  "name": "blob-downloader",
+  "description": "Detect every blob: URL and MediaSource stream on a page, and save it",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "author": "Aero Wang <aero.windwalker@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "chrome-extension",
+    "blob",
+    "mediasource",
+    "download"
+  ],
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "@types/chrome": "^0.0.287",
+    "@typescript/native-preview": "^7.0.0-dev.20260605.1",
+    "wxt": "^0.20.27"
+  }
+}

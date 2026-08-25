@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Hold — a buffer with a fill level. One flat violet, matching the
+       PNGs; refs/icons.html carries the two-tone version for in-app use,
+       where currentColor can follow the theme. -->
+  <rect x="7.25" y="9.25" width="49.5" height="45.5" rx="8.75"
+        fill="none" stroke="#8b5cf6" stroke-width="6.5"/>
+  <path fill="#8b5cf6" d="M10.5 32H53.5V46a5.5 5.5 0 0 1-5.5 5.5H16a5.5 5.5 0 0 1-5.5-5.5Z"/>
+</svg>
