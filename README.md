@@ -68,7 +68,7 @@ service worker, and there is no offscreen document.
 | `src/entrypoints/hook.content.ts` | MAIN world: installs the patches, answers for the page |
 | `src/entrypoints/bridge.content.ts` | The pipe between the page's world and the extension |
 | `src/entrypoints/background.ts` | Aggregates frames, drives `chrome.downloads`, paints the badge |
-| `src/entrypoints/popup/` | The list, and the Save buttons |
+| `src/entrypoints/popup/` | The list, and the Save / Clear / Del buttons |
 | `src/lib/blob-registry.ts` | The patches and everything they record |
 | `src/lib/segment-store.ts` | MediaSource segments, and the cap on them |
 | `src/lib/format.ts` | Naming a file for bytes that arrived without a name |
@@ -112,6 +112,23 @@ affect whether the file will be usable:
   cut.
 - **nothing captured yet — press play.** A MediaSource exists but the player has
   not asked for any data. There is nothing to save until it does.
+
+## Giving the memory back
+
+Everything the extension can save, it is holding in the page's own memory — that
+is what makes a revoked blob recoverable and a stream saveable at all. The header
+says how much (`… held`), and there are two ways to hand it back:
+
+- **Remove**, on a row: drops that row and frees the bytes behind it. A removed
+  stream stops recording for good, rather than starting a fresh row on the next
+  segment and climbing straight back up.
+- **Clear all**, in the header: the same for every item in every frame of the
+  page. It asks first — one click arms it, the second empties the page — because
+  there is no undo and a stream that has been playing for an hour can only be got
+  back by playing it again.
+
+Neither stops the extension watching: a blob the page mints afterwards, or a
+video started afterwards, is captured as usual.
 
 ## Limits
 

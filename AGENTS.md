@@ -63,6 +63,26 @@ worse than a refusal.
 Known gap: `SourceBuffer.changeType` is not tracked, so a mid-stream container
 switch would splice two headers. Codec switches within one container are fine.
 
+### Remove / Clear all
+
+`Remove` on a row, `Clear all` in the header — the same operation, one item or
+every item in every frame. Both are `purge`; there is deliberately no
+free-the-bytes-but-keep-the-row variant, because clearing a stream's segments
+takes its initialisation segment with them and what accumulated afterwards would
+play nowhere.
+
+- A removed track keeps its `trackBySourceBuffer` mapping and sets `dropped`.
+  Forgetting the SourceBuffer instead would have the next `appendBuffer` adopt
+  it as a fresh row and climb straight back up — the opposite of purging.
+- A removed track stays in `stream.tracks`: the stream still has the tracks it
+  has, and renumbering the survivor to "1 of 1" would claim otherwise.
+- `Clear all` fans out per frame in the background rather than sending one
+  frameless message, which reaches every frame but returns only the first reply.
+  A frame that cannot be reached has navigated away, so its stale rows are
+  dropped from session storage instead of being reported as a failure.
+- `Clear all` arms on the first click. A single row does not need that; a button
+  that frees a whole page of bytes does.
+
 ### Testing it in a browser
 
 `test/blob-test.html`, served over HTTP (content scripts do not run on `file://`

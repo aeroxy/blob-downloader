@@ -44,6 +44,13 @@ export interface Item {
   saveable: boolean
   /** We hit the per-item byte cap and stopped recording. The file is a prefix of the real one. */
   truncated: boolean
+  /**
+   * We are holding these bytes in the page's memory right now. False for a blob
+   * we only reach through the page's own live URL, which costs us nothing, and
+   * for a stream that hasn't been played yet. This is what the header totals:
+   * what removing things would actually give back.
+   */
+  retained: boolean
   /** The page called `revokeObjectURL`. Still saveable if we hold the Blob. */
   revoked: boolean
   createdAt: number
@@ -63,9 +70,12 @@ export const PAGE_COMMAND = 'blobdl:command'
 export type PageEvent =
   | { type: 'inventory'; items: Item[] }
   | { type: 'prepared'; requestId: string; result: PrepareResult }
+  | { type: 'purged'; requestId: string; result: PurgeResult }
 
 export type PageCommand =
   | { type: 'prepare'; requestId: string; id: string }
+  /** `id: null` means everything this frame holds. */
+  | { type: 'purge'; requestId: string; id: string | null }
   /** The bridge starts after the hook, so it asks once rather than waiting for the next blob. */
   | { type: 'refresh' }
 
@@ -85,6 +95,9 @@ export type Request =
   | { type: 'PUSH'; origin: string; items: Item[] }
   | { type: 'LIST'; tabId: number }
   | { type: 'SAVE'; tabId: number; frameId: number; id: string }
+  | { type: 'PURGE'; tabId: number; frameId: number; id: string }
+  /** Everything, in every frame of the tab. The background fans it out. */
+  | { type: 'PURGE_ALL'; tabId: number }
 
 /**
  * Sent *to* one frame's bridge by the background. Separate from `Request`
@@ -97,6 +110,10 @@ export type FrameRequest =
   | { type: 'REFRESH' }
   /** Mint a URL for this item's bytes. The frame answers with a `PrepareResult`. */
   | { type: 'PREPARE'; id: string }
+  /** Drop one item and the bytes behind it. The frame answers with a `PurgeResult`. */
+  | { type: 'PURGE'; id: string }
+  /** The same for everything this frame holds. */
+  | { type: 'PURGE_ALL' }
 
 /**
  * What the page hands over: a fresh `blob:` URL for the bytes, and the name to
@@ -109,4 +126,9 @@ export type PrepareResult =
   | { ok: false; error: string }
 
 export type ListResult = { frames: FrameInventory[] }
-export type SaveResult = { ok: true } | { ok: false; error: string }
+
+/** Done, or the one line explaining why not. */
+export type Ack = { ok: true } | { ok: false; error: string }
+export type SaveResult = Ack
+
+export type PurgeResult = Ack

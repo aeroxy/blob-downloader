@@ -73,6 +73,8 @@ interface TrackEntry {
    */
   sawInit: boolean
   ended: boolean
+  /** Removed by the user: no longer listed, and appends are ignored from here on. */
+  dropped: boolean
   stream: StreamEntry | null
 }
 
@@ -224,6 +226,7 @@ function noteSourceBuffer(source: MediaSource, buffer: SourceBuffer, mime: strin
     createdAt: Date.now(),
     sawInit: true,
     ended: false,
+    dropped: false,
     stream,
   }
   stream.tracks.push(entry)
@@ -245,6 +248,7 @@ function adoptSourceBuffer(buffer: SourceBuffer, mime: string): TrackEntry {
     createdAt: Date.now(),
     sawInit: false,
     ended: false,
+    dropped: false,
     stream: null,
   }
   tracks.set(entry.id, entry)
@@ -257,6 +261,10 @@ function noteAppend(buffer: SourceBuffer, data: ArrayBuffer | ArrayBufferView): 
   const entry =
     trackBySourceBuffer.get(buffer) ??
     adoptSourceBuffer(buffer, (buffer as SourceBuffer & { mimeType?: string }).mimeType ?? '')
+  // A deleted track keeps its mapping so the next append doesn't get adopted as
+  // a brand-new row that starts growing again — deleting has to actually stop
+  // the memory going up.
+  if (entry.dropped) return
   const first = entry.store.count === 0
   entry.store.append(data)
   // A playing video appends every few hundred milliseconds, so announcing each
@@ -356,6 +364,7 @@ function blobItem(entry: BlobEntry, index: UsageIndex): Item {
     concern: unretained,
     saveable: entry.blob !== null || !revoked,
     truncated: false,
+    retained: entry.blob !== null,
     revoked,
     createdAt: entry.createdAt,
   }
@@ -394,6 +403,7 @@ function trackItem(entry: TrackEntry, index: UsageIndex): Item {
     concern: !entry.sawInit || entry.store.truncated || entry.store.size === 0,
     saveable: entry.store.size > 0,
     truncated: entry.store.truncated,
+    retained: entry.store.size > 0,
     revoked: false,
     createdAt: entry.createdAt,
   }
@@ -421,6 +431,50 @@ export function isRecording(): boolean {
     if (!track.ended && track.store.size > 0) return true
   }
   return false
+}
+
+/* ---------- giving the memory back ---------- */
+
+/**
+ * Drop one item and the bytes behind it.
+ *
+ * Everything this extension can save, it is holding in the page's own
+ * memory — a retained `Blob` the page has already forgotten, up to half a
+ * gigabyte of segments per stream track — so there has to be a way to hand it
+ * back short of reloading.
+ *
+ * A removed track keeps its `trackBySourceBuffer` mapping and is marked
+ * `dropped` rather than forgotten: forgetting it would have the next
+ * `appendBuffer` adopt it as a brand-new row and start climbing again, which is
+ * the opposite of what was asked for.
+ */
+export function purge(id: string): void {
+  const track = tracks.get(id)
+  if (track) {
+    track.store.clear()
+    track.dropped = true
+    tracks.delete(id)
+    // Left in `stream.tracks` on purpose: the stream still has the tracks it
+    // has, and renumbering the survivor to "1 of 1" would claim otherwise.
+    notify()
+    return
+  }
+
+  const entry = blobEntries.get(id)
+  if (!entry) throw new Error('That item is no longer on the page.')
+  forget(entry)
+  notify()
+}
+
+/** The same for everything this frame holds — one button for a page full of rows. */
+export function purgeAll(): void {
+  for (const entry of [...blobEntries.values()]) forget(entry)
+  for (const track of [...tracks.values()]) {
+    track.store.clear()
+    track.dropped = true
+  }
+  tracks.clear()
+  notify()
 }
 
 /* ---------- handing bytes to the downloader ---------- */

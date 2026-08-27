@@ -2,6 +2,7 @@ import type {
   FrameInventory,
   ListResult,
   PrepareResult,
+  PurgeResult,
   Request,
   SaveResult,
 } from '@/types/messages'
@@ -103,6 +104,70 @@ async function save(tabId: number, frameId: number, id: string): Promise<SaveRes
   }
 }
 
+/** Drop a frame we could not reach: its document is gone, so its blobs are too. */
+function dropFrames(tabId: number, frameIds: number[]): Promise<void> {
+  const write = writes.then(async () => {
+    const frames = (await read(tabId)).filter((f) => !frameIds.includes(f.frameId))
+    await chrome.storage.session.set({ [keyFor(tabId)]: frames })
+    await paintBadge(tabId, frames)
+  })
+  writes = write.catch(() => undefined)
+  return write
+}
+
+/**
+ * Hand one item's memory back to the page.
+ *
+ * Nothing to do here afterwards: the frame's own inventory is the source of
+ * truth, so the row and the badge correct themselves on the next PUSH.
+ */
+async function purge(tabId: number, frameId: number, id: string): Promise<PurgeResult> {
+  try {
+    return (await chrome.tabs.sendMessage(tabId, { type: 'PURGE', id }, { frameId })) as PurgeResult
+  } catch (e) {
+    return { ok: false, error: `Could not reach the page: ${(e as Error).message}` }
+  }
+}
+
+/**
+ * The same for every frame of the tab.
+ *
+ * Fanned out here rather than by one frameless `sendMessage`, which reaches all
+ * frames but returns only the first reply — with a button that claims to have
+ * emptied the page, the frame that refused is the one thing worth knowing. A
+ * frame that cannot be reached at all is a different matter: its document has
+ * gone, so its rows are stale and are dropped rather than reported.
+ */
+async function purgeAll(tabId: number): Promise<PurgeResult> {
+  const frames = await read(tabId)
+  const gone: number[] = []
+  const refused: string[] = []
+
+  await Promise.all(
+    frames.map(async (frame) => {
+      let result: PurgeResult
+      try {
+        result = (await chrome.tabs.sendMessage(
+          tabId,
+          { type: 'PURGE_ALL' },
+          { frameId: frame.frameId },
+        )) as PurgeResult
+      } catch {
+        gone.push(frame.frameId)
+        return
+      }
+      if (!result.ok) refused.push(result.error)
+    }),
+  )
+
+  if (gone.length > 0) await dropFrames(tabId, gone)
+  if (refused.length === 0) return { ok: true }
+  return {
+    ok: false,
+    error: refused.length === 1 ? refused[0]! : `${refused.length} frames refused: ${refused[0]!}`,
+  }
+}
+
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((message: Request, sender, sendResponse) => {
     if (message.type === 'PUSH') {
@@ -135,6 +200,17 @@ export default defineBackground(() => {
     if (message.type === 'SAVE') {
       save(message.tabId, message.frameId, message.id).then(sendResponse, (e: unknown) =>
         sendResponse({ ok: false, error: (e as Error).message } satisfies SaveResult),
+      )
+      return true
+    }
+
+    if (message.type === 'PURGE' || message.type === 'PURGE_ALL') {
+      const done =
+        message.type === 'PURGE'
+          ? purge(message.tabId, message.frameId, message.id)
+          : purgeAll(message.tabId)
+      done.then(sendResponse, (e: unknown) =>
+        sendResponse({ ok: false, error: (e as Error).message } satisfies PurgeResult),
       )
       return true
     }

@@ -8,8 +8,12 @@
   </head>
   <body>
     <header>
-      <h1>Blobs on this page</h1>
-      <p id="summary">Looking…</p>
+      <div class="titles">
+        <h1>Blobs on this page</h1>
+        <p id="summary">Looking…</p>
+        <p id="trouble" hidden></p>
+      </div>
+      <button id="clear-all" class="ghost" disabled>Clear all</button>
     </header>
     <main id="list"></main>
     <script type="module" src="./main.ts"></script>

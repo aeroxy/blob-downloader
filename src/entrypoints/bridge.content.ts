@@ -6,6 +6,7 @@ import {
   type PageCommand,
   type PageEvent,
   type PrepareResult,
+  type PurgeResult,
   type Request,
 } from '@/types/messages'
 
@@ -19,7 +20,7 @@ import {
  * in-flight saves it is waiting on.
  */
 
-/** A prepare is a click in the popup; if the page hasn't answered by now it isn't going to. */
+/** Every request here is a click in the popup; if the page hasn't answered by now it isn't going to. */
 const PREPARE_TIMEOUT_MS = 20_000
 
 /**
@@ -31,8 +32,17 @@ const PREPARE_TIMEOUT_MS = 20_000
  * the page's. The one thing the hook ever mints is a `blob:` URL for this
  * frame's own origin, so anything else is not a reply, whatever it claims.
  */
+const MALFORMED = { ok: false, error: 'The page sent a malformed reply.' } as const
+
+/** A bare done-or-why-not, kept to that shape and nothing the page bolted on. */
+function ack(result: PurgeResult): PurgeResult {
+  if (typeof result !== 'object' || result === null) return MALFORMED
+  if (result.ok === true) return { ok: true }
+  return typeof result.error === 'string' ? { ok: false, error: result.error } : MALFORMED
+}
+
 function checked(result: PrepareResult): PrepareResult {
-  const malformed: PrepareResult = { ok: false, error: 'The page sent a malformed reply.' }
+  const malformed: PrepareResult = MALFORMED
   if (typeof result !== 'object' || result === null) return malformed
   if (result.ok !== true) {
     return result.ok === false && typeof result.error === 'string' ? result : malformed
@@ -49,11 +59,32 @@ export default defineContentScript({
   allFrames: true,
 
   main() {
-    const pending = new Map<string, (result: PrepareResult) => void>()
+    const pending = new Map<string, (result: PrepareResult | PurgeResult) => void>()
     let requests = 0
 
     const command = (message: PageCommand): void => {
       document.dispatchEvent(new CustomEvent(PAGE_COMMAND, { detail: JSON.stringify(message) }))
+    }
+
+    /**
+     * Send one command to the page world and answer the background with the
+     * page's reply. The timeout is the load-bearing part: without it the
+     * popup's button sits disabled for ever when nothing answers, which is
+     * exactly what an extension reloaded under a live page leaves behind — a
+     * bridge with no hook on the other side.
+     */
+    const ask = (
+      build: (requestId: string) => PageCommand,
+      sendResponse: (result: PrepareResult | PurgeResult) => void,
+      timedOut: PrepareResult | PurgeResult,
+    ): void => {
+      const requestId = `r${++requests}`
+      pending.set(requestId, sendResponse)
+      setTimeout(() => {
+        if (!pending.delete(requestId)) return
+        sendResponse(timedOut)
+      }, PREPARE_TIMEOUT_MS)
+      command(build(requestId))
     }
 
     const push = (items: Item[]): void => {
@@ -77,11 +108,12 @@ export default defineContentScript({
         return
       }
 
-      if (message.type !== 'prepared' || typeof message.requestId !== 'string') return
+      if (message.type !== 'prepared' && message.type !== 'purged') return
+      if (typeof message.requestId !== 'string') return
       const settle = pending.get(message.requestId)
       if (!settle) return
       pending.delete(message.requestId)
-      settle(checked(message.result))
+      settle(message.type === 'prepared' ? checked(message.result) : ack(message.result))
     })
 
     chrome.runtime.onMessage.addListener((request: FrameRequest, _sender, sendResponse) => {
@@ -91,16 +123,19 @@ export default defineContentScript({
       }
 
       if (request.type === 'PREPARE') {
-        const requestId = `r${++requests}`
-        pending.set(requestId, sendResponse)
-        // Without this the popup's button would sit disabled for ever if the
-        // page world never answered — an extension reloaded under a live page
-        // leaves a bridge with no hook on the other side.
-        setTimeout(() => {
-          if (!pending.delete(requestId)) return
-          sendResponse({ ok: false, error: 'The page did not respond.' } satisfies PrepareResult)
-        }, PREPARE_TIMEOUT_MS)
-        command({ type: 'prepare', requestId, id: request.id })
+        ask((requestId) => ({ type: 'prepare', requestId, id: request.id }), sendResponse, {
+          ok: false,
+          error: 'The page did not respond.',
+        } satisfies PrepareResult)
+        return true
+      }
+
+      if (request.type === 'PURGE' || request.type === 'PURGE_ALL') {
+        const id = request.type === 'PURGE' ? request.id : null
+        ask((requestId) => ({ type: 'purge', requestId, id }), sendResponse, {
+          ok: false,
+          error: 'The page did not respond.',
+        } satisfies PurgeResult)
         return true
       }
 
