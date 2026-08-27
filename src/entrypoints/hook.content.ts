@@ -6,7 +6,9 @@ import {
   prepare,
   purge,
   purgeAll,
+  setLimits,
 } from '@/lib/blob-registry'
+import { normalise } from '@/lib/limits'
 import { PAGE_COMMAND, PAGE_EVENT, type PageCommand, type PageEvent } from '@/types/messages'
 
 /**
@@ -88,6 +90,14 @@ export default defineContentScript({
       try {
         command = JSON.parse(detail) as PageCommand
       } catch {
+        return
+      }
+
+      if (command.type === 'limits') {
+        // Normalised again on this side: the page shares this document and can
+        // dispatch `blobdl:command` too, and a limit is a number this code then
+        // allocates against.
+        setLimits(normalise(command.limits))
         return
       }
 

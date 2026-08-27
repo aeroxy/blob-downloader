@@ -67,3 +67,35 @@ describe('SegmentStore', () => {
     expect(store.truncated).toBe(false)
   })
 })
+
+describe('SegmentStore.setMax', () => {
+  test('a lowered cap keeps what is already stored and refuses the rest', async () => {
+    const store = new SegmentStore(100)
+    store.append(new Uint8Array(60))
+    store.setMax(50)
+    store.append(new Uint8Array(10))
+    expect(store.size).toBe(60)
+    expect(store.truncated).toBe(true)
+    expect(store.dropped).toBe(10)
+  })
+
+  test('raising the cap does not restart a store that already stopped', () => {
+    const store = new SegmentStore(50)
+    store.append(new Uint8Array(40))
+    store.append(new Uint8Array(20)) // over the cap: stops for good
+    store.setMax(1000)
+    store.append(new Uint8Array(10))
+    // A hole in the middle is worse than a short file, so `stopped` is sticky.
+    expect(store.size).toBe(40)
+    expect(store.dropped).toBe(30)
+  })
+
+  test('a raised cap admits more when nothing has been dropped yet', () => {
+    const store = new SegmentStore(50)
+    store.append(new Uint8Array(40))
+    store.setMax(200)
+    store.append(new Uint8Array(100))
+    expect(store.size).toBe(140)
+    expect(store.truncated).toBe(false)
+  })
+})

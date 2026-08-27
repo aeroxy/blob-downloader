@@ -1,4 +1,5 @@
 import { humanSize } from '@/lib/format'
+import { BOUNDS, LIMITS_KEY, fromMB, normalise, toMB } from '@/lib/limits'
 import type {
   FrameInventory,
   Item,
@@ -22,6 +23,10 @@ const summary = document.getElementById('summary')!
 const trouble = document.getElementById('trouble')!
 const list = document.getElementById('list')!
 const clearAll = document.getElementById('clear-all') as HTMLButtonElement
+const trackInput = document.getElementById('track') as HTMLInputElement
+const retainedInput = document.getElementById('retained') as HTMLInputElement
+const applyButton = document.getElementById('apply') as HTMLButtonElement
+const limitsNote = document.getElementById('limits-note')!
 
 /** Re-rendering under a click would replace the button mid-request — of which there can be more than one. */
 let busy = 0
@@ -258,7 +263,70 @@ function wireClearAll(tabId: number): void {
   })
 }
 
+/**
+ * The two memory ceilings.
+ *
+ * Written to `chrome.storage.local` and nothing else: every frame's bridge is
+ * listening for the change and forwards it into the page world, including on
+ * pages that are capturing right now — which is the case the setting exists
+ * for. Nothing here has to reach the tab itself.
+ */
+async function wireLimits(): Promise<void> {
+  const show = (limits: { trackBytes: number; retainedBytes: number }): void => {
+    trackInput.value = String(toMB(limits.trackBytes))
+    retainedInput.value = String(toMB(limits.retainedBytes))
+  }
+
+  for (const [input, bound] of [
+    [trackInput, BOUNDS.trackBytes],
+    [retainedInput, BOUNDS.retainedBytes],
+  ] as const) {
+    input.min = String(toMB(bound.min))
+    input.max = String(toMB(bound.max))
+    input.step = '16'
+  }
+
+  const stored = (await chrome.storage.local.get(LIMITS_KEY).catch(() => ({}))) as Record<
+    string,
+    unknown
+  >
+  show(normalise(stored[LIMITS_KEY]))
+
+  applyButton.addEventListener('click', () => {
+    void (async () => {
+      // An empty or nonsensical box means the default, not the floor: `normalise`
+      // falls back for anything it cannot use, and 16 MB is a surprising thing to
+      // get for having typed nothing.
+      const typed = (input: HTMLInputElement): number | undefined => {
+        const mb = Number(input.value)
+        return Number.isFinite(mb) && mb > 0 ? fromMB(mb) : undefined
+      }
+      const limits = normalise({
+        trackBytes: typed(trackInput),
+        retainedBytes: typed(retainedInput),
+      })
+      applyButton.disabled = true
+      try {
+        await chrome.storage.local.set({ [LIMITS_KEY]: limits })
+        const clamped =
+          String(toMB(limits.trackBytes)) !== trackInput.value ||
+          String(toMB(limits.retainedBytes)) !== retainedInput.value
+        show(limits)
+        limitsNote.textContent = clamped ? 'Applied, within range.' : 'Applied.'
+      } catch (e) {
+        limitsNote.textContent = `Could not save: ${(e as Error).message}`
+      } finally {
+        applyButton.disabled = false
+      }
+    })()
+  })
+}
+
 async function main(): Promise<void> {
+  // Before the tab check: the limits are extension-wide, and a popup opened over
+  // a chrome:// page is a perfectly good place to change them.
+  void wireLimits()
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (tab?.id === undefined) {
     summary.textContent = 'No page here.'

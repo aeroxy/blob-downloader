@@ -11,6 +11,8 @@
  * `chrome.runtime` but cannot see a single page object.
  */
 
+import type { Limits } from '@/lib/limits'
+
 export type Kind =
   /** `URL.createObjectURL(blob)` — a real Blob, its bytes already complete. */
   | 'blob'
@@ -78,6 +80,12 @@ export type PageCommand =
   | { type: 'purge'; requestId: string; id: string | null }
   /** The bridge starts after the hook, so it asks once rather than waiting for the next blob. */
   | { type: 'refresh' }
+  /**
+   * New memory ceilings. Sent once when the bridge has read them out of
+   * storage, and again whenever the popup changes them — `chrome.storage` is
+   * not reachable from the page world, so this is the only way in.
+   */
+  | { type: 'limits'; limits: Limits }
 
 /* ---------- bridge / popup ⇄ background ---------- */
 

@@ -15,9 +15,10 @@ page globals, retaining a page's `Blob` after it revoked the URL, or reading a
 MediaSource's segments. Those are the mechanism, not a lapse.
 
 Do flag the one real cost: **the extension holds media in the page's memory** —
-up to 512 MB per stream track and 1 GB of retained Blobs per frame. That is a
-deliberate trade (it is what makes a revoked blob recoverable and a stream
-saveable at all) and the caps and their notes should stay honest in the popup.
+512 MB per stream track and 1 GB of retained Blobs per frame by default, and
+whatever the popup's **Memory limits** say otherwise. That is a deliberate trade
+(it is what makes a revoked blob recoverable and a stream saveable at all) and
+the caps and their notes should stay honest in the popup.
 
 ### Saving: do not re-propose the anchor click
 
@@ -82,6 +83,28 @@ play nowhere.
   dropped from session storage instead of being reported as a failure.
 - `Clear all` arms on the first click. A single row does not need that; a button
   that frees a whole page of bytes does.
+
+### Memory limits
+
+`src/lib/limits.ts` owns the shape, the defaults and the bounds; the popup
+writes them to `chrome.storage.local` and nothing else. Every frame's bridge
+reads that key at startup and listens for changes, forwarding them into the page
+world — which has no `chrome.*` — so a limit changed mid-capture reaches the
+frames that are capturing.
+
+- Applied to what is already here, not just to what arrives next: lowering the
+  blob budget evicts down to it immediately. The whole reason to change it is a
+  tab that is struggling now.
+- Raising a track's cap does **not** restart a `SegmentStore` that has already
+  stopped, and `stopped` is sticky for that reason: what is kept has to be a
+  contiguous prefix, and resuming after a gap hands the decoder fragments at
+  timestamps it has no header for.
+- `normalise()` is applied on both sides. Storage outlives the code that wrote
+  it, and the page shares a document with the hook, so a limit arriving as a
+  command is a number this code then allocates against.
+- The 16 MB floor is not a formality: a cap below one segment stops a capture on
+  its first append, and the row has to say so (`the first segment was larger
+  than the size cap`) rather than offering "press play".
 
 ### Testing it in a browser
 

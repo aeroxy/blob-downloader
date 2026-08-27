@@ -1,4 +1,5 @@
 import { baseType, filenameFor } from '@/lib/format'
+import { DEFAULT_LIMITS, type Limits } from '@/lib/limits'
 import { SegmentStore } from '@/lib/segment-store'
 import type { Item } from '@/types/messages'
 
@@ -35,13 +36,19 @@ import type { Item } from '@/types/messages'
 const MAX_ITEMS = 300
 
 /**
- * Total bytes of retained `Blob` references. These are handles into the
- * browser's blob store rather than the JS heap, and Chrome spills large ones to
- * disk, so this is more generous than the per-stream cap. Past it, new blobs are
- * tracked but not retained: still saveable while their URL is live, lost once
- * the page revokes it. The row says which, rather than failing at click time.
+ * How much memory we may hold, until the popup says otherwise.
+ *
+ * The retained-Blob budget is the more generous of the two: those are handles
+ * into the browser's blob store rather than the JS heap, and Chrome spills
+ * large ones to disk. Past it, new blobs are tracked but not retained — still
+ * saveable while their URL is live, lost once the page revokes it. The row says
+ * which, rather than failing at click time.
+ *
+ * Defaults until the frame's bridge reads the stored settings, a moment after
+ * `document_start`. Only the ceiling is affected, so the handful of appends
+ * that can land in between are unaffected either way.
  */
-const MAX_RETAINED_BYTES = 1024 * 1024 * 1024
+let limits: Limits = DEFAULT_LIMITS
 
 /* Captured before anything else can touch them. */
 const nativeCreateObjectURL = URL.createObjectURL.bind(URL)
@@ -108,6 +115,22 @@ export function onChange(fn: () => void): void {
   notify = fn
 }
 
+/**
+ * Move the memory ceilings, on a page that is already capturing.
+ *
+ * Applied to what is already here, not just to what arrives next — a limit you
+ * have just lowered because the tab is struggling would be no use if it waited
+ * for the next blob. Lowering the blob budget evicts down to it at once
+ * (live URLs first, as ever); lowering a track's cap keeps the segments already
+ * captured, since those are a valid file, and admits nothing more.
+ */
+export function setLimits(next: Limits): void {
+  limits = next
+  for (const track of tracks.values()) track.store.setMax(next.trackBytes)
+  if (retainedBytes > next.retainedBytes) evict(0)
+  notify()
+}
+
 /* ---------- real Blobs ---------- */
 
 function release(entry: BlobEntry): void {
@@ -133,14 +156,14 @@ function evict(needed: number): void {
     )
 
   for (const entry of candidates) {
-    if (retainedBytes + needed <= MAX_RETAINED_BYTES) return
+    if (retainedBytes + needed <= limits.retainedBytes) return
     release(entry)
   }
 }
 
 function retain(entry: BlobEntry, blob: Blob): void {
-  if (retainedBytes + blob.size > MAX_RETAINED_BYTES) evict(blob.size)
-  if (retainedBytes + blob.size > MAX_RETAINED_BYTES) return
+  if (retainedBytes + blob.size > limits.retainedBytes) evict(blob.size)
+  if (retainedBytes + blob.size > limits.retainedBytes) return
   entry.blob = blob
   retainedBytes += blob.size
 }
@@ -222,7 +245,7 @@ function noteSourceBuffer(source: MediaSource, buffer: SourceBuffer, mime: strin
   const entry: TrackEntry = {
     id: nextId('t'),
     mime,
-    store: new SegmentStore(),
+    store: new SegmentStore(limits.trackBytes),
     createdAt: Date.now(),
     sawInit: true,
     ended: false,
@@ -244,7 +267,7 @@ function adoptSourceBuffer(buffer: SourceBuffer, mime: string): TrackEntry {
   const entry: TrackEntry = {
     id: nextId('t'),
     mime,
-    store: new SegmentStore(),
+    store: new SegmentStore(limits.trackBytes),
     createdAt: Date.now(),
     sawInit: false,
     ended: false,
@@ -388,10 +411,18 @@ function trackItem(entry: TrackEntry, index: UsageIndex): Item {
     const which = (entry.stream?.tracks.indexOf(entry) ?? 0) + 1
     notes.push(`track ${which} of ${siblings} — separate files, mux them with ffmpeg`)
   }
-  if (entry.store.truncated) notes.push('hit the size cap; the file ends early')
-  if (entry.store.size === 0) notes.push('nothing captured yet — press play')
-  else if (entry.ended) notes.push('stream ended')
-  else notes.push('still recording as it plays')
+  if (entry.store.size === 0) {
+    // Nothing at all, for one of two reasons that need opposite responses. The
+    // cap is a setting now, so "press play" would be advice that cannot work.
+    notes.push(
+      entry.store.truncated
+        ? 'the first segment was larger than the size cap — raise it and reload the page'
+        : 'nothing captured yet — press play',
+    )
+  } else {
+    if (entry.store.truncated) notes.push('hit the size cap; the file ends early')
+    notes.push(entry.ended ? 'stream ended' : 'still recording as it plays')
+  }
 
   return {
     id: entry.id,

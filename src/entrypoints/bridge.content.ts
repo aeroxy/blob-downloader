@@ -1,3 +1,4 @@
+import { LIMITS_KEY, normalise } from '@/lib/limits'
 import {
   PAGE_COMMAND,
   PAGE_EVENT,
@@ -140,6 +141,28 @@ export default defineContentScript({
       }
 
       return false
+    })
+
+    /**
+     * The memory ceilings live in `chrome.storage`, which the page world cannot
+     * see, so they come through here: once at startup, and again whenever the
+     * popup changes them — including for frames that were already capturing,
+     * which is the only reason the setting is worth having on a page that is
+     * already struggling.
+     */
+    const sendLimits = (stored: unknown): void => {
+      command({ type: 'limits', limits: normalise(stored) })
+    }
+
+    void chrome.storage.local
+      .get(LIMITS_KEY)
+      .then((stored) => sendLimits(stored[LIMITS_KEY]))
+      // Nothing readable means the defaults, which the hook is already using.
+      .catch(() => {})
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !(LIMITS_KEY in changes)) return
+      sendLimits(changes[LIMITS_KEY]?.newValue)
     })
 
     // The hook is installed before this runs, so anything it found in the

@@ -172,6 +172,67 @@ button.ghost:hover:not([disabled]) {
   filter: none;
 }
 
+footer {
+  border-top: 1px solid var(--line);
+}
+
+details {
+  padding: 8px 14px 12px;
+}
+
+summary {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.fields {
+  display: grid;
+  gap: 6px 10px;
+  align-items: center;
+  grid-template-columns: 1fr auto;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.fields span {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.fields input {
+  width: 64px;
+  padding: 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.apply {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+#limits-note {
+  color: var(--dim);
+  font-size: 11px;
+}
+
 .empty {
   padding: 16px 14px 20px;
   color: var(--dim);
