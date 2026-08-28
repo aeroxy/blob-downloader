@@ -39,9 +39,17 @@ body {
 header {
   position: sticky;
   top: 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
   padding: 12px 14px 10px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
+}
+
+.titles {
+  min-width: 0;
 }
 
 h1 {
@@ -50,10 +58,15 @@ h1 {
   font-weight: 600;
 }
 
-#summary {
+#summary,
+#trouble {
   margin: 2px 0 0;
   color: var(--dim);
   font-size: 12px;
+}
+
+#trouble {
+  color: var(--warn);
 }
 
 .origin {
@@ -73,9 +86,17 @@ h1 {
   border-bottom: 1px solid var(--line);
 }
 
-.row > div {
+.row > .body {
   min-width: 0;
   flex: 1;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
 }
 
 .name {
@@ -127,6 +148,89 @@ button:hover:not([disabled]) {
 button[disabled] {
   cursor: default;
   opacity: 0.45;
+}
+
+/* Freeing memory is maintenance, not the thing the popup is for. */
+#clear-all {
+  /* Wide enough for "Everything?", so arming it doesn't reflow the header. */
+  flex: none;
+  min-width: 84px;
+  text-align: center;
+}
+
+button.ghost {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+button.ghost:hover:not([disabled]) {
+  border-color: var(--warn);
+  color: var(--warn);
+  filter: none;
+}
+
+footer {
+  border-top: 1px solid var(--line);
+}
+
+details {
+  padding: 8px 14px 12px;
+}
+
+summary {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.fields {
+  display: grid;
+  gap: 6px 10px;
+  align-items: center;
+  grid-template-columns: 1fr auto;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.fields span {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.fields input {
+  width: 64px;
+  padding: 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.apply {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+#limits-note {
+  color: var(--dim);
+  font-size: 11px;
 }
 
 .empty {

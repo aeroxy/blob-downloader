@@ -68,7 +68,7 @@ service worker, and there is no offscreen document.
 | `src/entrypoints/hook.content.ts` | MAIN world: installs the patches, answers for the page |
 | `src/entrypoints/bridge.content.ts` | The pipe between the page's world and the extension |
 | `src/entrypoints/background.ts` | Aggregates frames, drives `chrome.downloads`, paints the badge |
-| `src/entrypoints/popup/` | The list, and the Save buttons |
+| `src/entrypoints/popup/` | The list, and the Save / Clear / Del buttons |
 | `src/lib/blob-registry.ts` | The patches and everything they record |
 | `src/lib/segment-store.ts` | MediaSource segments, and the cap on them |
 | `src/lib/format.ts` | Naming a file for bytes that arrived without a name |
@@ -107,11 +107,38 @@ affect whether the file will be usable:
 - **track N of M — separate files, mux them with ffmpeg.** Streaming video
   usually arrives as one SourceBuffer for video and another for audio. They save
   as two files: `ffmpeg -i video.mp4 -i audio.mp4 -c copy out.mp4`.
-- **hit the size cap; the file ends early.** 512 MB per track, discarded from
-  the end so that what you get still starts with its header and plays up to the
-  cut.
+- **hit the size cap; the file ends early.** 512 MB per track by default,
+  discarded from the end so that what you get still starts with its header and
+  plays up to the cut. Raise it under **Memory limits** if the film is longer
+  than the cap.
 - **nothing captured yet — press play.** A MediaSource exists but the player has
   not asked for any data. There is nothing to save until it does.
+
+## Giving the memory back
+
+Everything the extension can save, it is holding in the page's own memory — that
+is what makes a revoked blob recoverable and a stream saveable at all. The header
+says how much (`… held`), and there are two ways to hand it back:
+
+- **Remove**, on a row: drops that row and frees the bytes behind it. A removed
+  stream stops recording for good, rather than starting a fresh row on the next
+  segment and climbing straight back up.
+- **Clear all**, in the header: the same for every item in every frame of the
+  page. It asks first — one click arms it, the second empties the page — because
+  there is no undo and a stream that has been playing for an hour can only be got
+  back by playing it again.
+
+Neither stops the extension watching: a blob the page mints afterwards, or a
+video started afterwards, is captured as usual.
+
+**Memory limits**, at the foot of the popup, sets the two ceilings: 512 MB per
+stream track and 1 GB of retained blobs per frame, by default. They take effect
+immediately, on pages that are already capturing — lowering the blob budget lets
+go of what is over it there and then, which is the point of changing it on a tab
+that is struggling. One thing they cannot do is undo: raising a cap will not
+restart a stream that has already stopped, because what is kept has to be one
+unbroken run from the first segment, and resuming after a gap would hand the
+decoder fragments it has no header for. Reload and play it again.
 
 ## Limits
 
@@ -120,8 +147,9 @@ affect whether the file will be usable:
   forwards and they are not, and the file will stutter or refuse to play
   entirely. For a clean capture: fresh page, press play, leave it alone.
 - **A stream is held in the page's memory while it records**, up to 512 MB per
-  track, and retained Blobs up to 1 GB per frame. Past those the row says so
-  rather than failing at the click.
+  track, and retained Blobs up to 1 GB per frame — both adjustable in the popup,
+  between 16 MB and 8 GB. Past whichever is set, the row says so rather than
+  failing at the click.
 - **`video.srcObject = mediaSource` streams are captured but harder to label** —
   they never mint a URL, so the `<video>` is matched by object identity instead.
 - **`SourceBuffer.changeType` is not tracked.** A stream that switches container

@@ -8,10 +8,36 @@
   </head>
   <body>
     <header>
-      <h1>Blobs on this page</h1>
-      <p id="summary">Looking…</p>
+      <div class="titles">
+        <h1>Blobs on this page</h1>
+        <p id="summary">Looking…</p>
+        <p id="trouble" hidden></p>
+      </div>
+      <button id="clear-all" class="ghost" disabled>Clear all</button>
     </header>
     <main id="list"></main>
+    <footer>
+      <details>
+        <summary>Memory limits</summary>
+        <div class="fields">
+          <label for="track">Per stream track</label>
+          <span><input id="track" type="number" /> MB</span>
+          <label for="retained">Retained blobs, per frame</label>
+          <span><input id="retained" type="number" /> MB</span>
+        </div>
+        <p class="hint">
+          Held in the page's own memory, which is what makes a revoked blob
+          recoverable and a stream saveable at all. Lowering a limit takes effect
+          at once, on pages already capturing. Raising one will not restart a
+          stream that has already stopped — what is kept has to be one unbroken
+          run from the start.
+        </p>
+        <div class="apply">
+          <button id="apply">Apply</button>
+          <span id="limits-note"></span>
+        </div>
+      </details>
+    </footer>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

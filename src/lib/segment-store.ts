@@ -22,7 +22,8 @@
 /**
  * Per-track ceiling. A 4K stream can run to gigabytes, and every byte here is
  * held in the page's own heap where it competes with the page. Half a gigabyte
- * is roughly an hour of 1080p and still leaves the tab usable.
+ * is roughly an hour of 1080p and still leaves the tab usable, and the popup
+ * can move it — see `src/lib/limits.ts`.
  *
  * Overshoot is discarded from the *end*, never the start: a truncated file that
  * begins with its init segment plays up to the cut, whereas one missing its
@@ -37,7 +38,20 @@ export class SegmentStore {
   /** Sticky once the cap is hit; see `append`. */
   private stopped = false
 
-  constructor(private readonly maxBytes: number = DEFAULT_MAX_BYTES) {}
+  constructor(private maxBytes: number = DEFAULT_MAX_BYTES) {}
+
+  /**
+   * Move the ceiling on a store that is already recording.
+   *
+   * Raising it does *not* restart a store that has already stopped, and that is
+   * the whole reason `stopped` is sticky: what is kept has to be a contiguous
+   * prefix, and resuming after a gap would hand the decoder fragments at
+   * timestamps it has no header for. Lowering it keeps what is already here —
+   * those bytes are a valid file — and simply admits nothing more.
+   */
+  setMax(bytes: number): void {
+    this.maxBytes = bytes
+  }
 
   /** Bytes retained, which is what the saved file will weigh. */
   get size(): number {

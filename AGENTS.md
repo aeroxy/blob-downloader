@@ -14,10 +14,30 @@ Do not flag as security issues: the `<all_urls>` content-script match, patching
 page globals, retaining a page's `Blob` after it revoked the URL, or reading a
 MediaSource's segments. Those are the mechanism, not a lapse.
 
+Also not a lapse: **the page can forge `blobdl:command`**, purge included. The
+hook shares a document with the page, so commands travel on a channel the page
+can both read and write; a token would be readable from the next `refresh` — the
+popup sends one every time it opens — and replayable. A channel the page cannot
+read means transferring a `MessagePort` at `document_start`, which needs
+`window.postMessage`, rejected here for the reason in `src/types/messages.ts`.
+
+What bounds it is that the events are document-scoped, so a page can only reach
+its own rows, and a page that wants to defeat this extension has a better tool
+than deleting rows after the fact. Measured in Chrome 151: an `about:blank`
+iframe's `URL.createObjectURL` is unpatched — there is no `match_about_blank`,
+so no content script runs there — and a blob minted through it never appears at
+all.
+
+The reply path is the one that is defended, and has to be: a forged `prepared`
+would hand `chrome.downloads` a URL fetched with the extension's privileges
+rather than the page's, so the bridge checks that the URL belongs to this frame
+(`checked()`).
+
 Do flag the one real cost: **the extension holds media in the page's memory** —
-up to 512 MB per stream track and 1 GB of retained Blobs per frame. That is a
-deliberate trade (it is what makes a revoked blob recoverable and a stream
-saveable at all) and the caps and their notes should stay honest in the popup.
+512 MB per stream track and 1 GB of retained Blobs per frame by default, and
+whatever the popup's **Memory limits** say otherwise. That is a deliberate trade
+(it is what makes a revoked blob recoverable and a stream saveable at all) and
+the caps and their notes should stay honest in the popup.
 
 ### Saving: do not re-propose the anchor click
 
@@ -62,6 +82,48 @@ worse than a refusal.
 
 Known gap: `SourceBuffer.changeType` is not tracked, so a mid-stream container
 switch would splice two headers. Codec switches within one container are fine.
+
+### Remove / Clear all
+
+`Remove` on a row, `Clear all` in the header — the same operation, one item or
+every item in every frame. Both are `purge`; there is deliberately no
+free-the-bytes-but-keep-the-row variant, because clearing a stream's segments
+takes its initialisation segment with them and what accumulated afterwards would
+play nowhere.
+
+- A removed track keeps its `trackBySourceBuffer` mapping and sets `dropped`.
+  Forgetting the SourceBuffer instead would have the next `appendBuffer` adopt
+  it as a fresh row and climb straight back up — the opposite of purging.
+- A removed track stays in `stream.tracks`: the stream still has the tracks it
+  has, and renumbering the survivor to "1 of 1" would claim otherwise.
+- `Clear all` fans out per frame in the background rather than sending one
+  frameless message, which reaches every frame but returns only the first reply.
+  A frame that cannot be reached has navigated away, so its stale rows are
+  dropped from session storage instead of being reported as a failure.
+- `Clear all` arms on the first click. A single row does not need that; a button
+  that frees a whole page of bytes does.
+
+### Memory limits
+
+`src/lib/limits.ts` owns the shape, the defaults and the bounds; the popup
+writes them to `chrome.storage.local` and nothing else. Every frame's bridge
+reads that key at startup and listens for changes, forwarding them into the page
+world — which has no `chrome.*` — so a limit changed mid-capture reaches the
+frames that are capturing.
+
+- Applied to what is already here, not just to what arrives next: lowering the
+  blob budget evicts down to it immediately. The whole reason to change it is a
+  tab that is struggling now.
+- Raising a track's cap does **not** restart a `SegmentStore` that has already
+  stopped, and `stopped` is sticky for that reason: what is kept has to be a
+  contiguous prefix, and resuming after a gap hands the decoder fragments at
+  timestamps it has no header for.
+- `normalise()` is applied on both sides. Storage outlives the code that wrote
+  it, and the page shares a document with the hook, so a limit arriving as a
+  command is a number this code then allocates against.
+- The 16 MB floor is not a formality: a cap below one segment stops a capture on
+  its first append, and the row has to say so (`the first segment was larger
+  than the size cap`) rather than offering "press play".
 
 ### Testing it in a browser
 

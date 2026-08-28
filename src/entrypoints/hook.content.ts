@@ -1,4 +1,14 @@
-import { install, inventory, isRecording, onChange, prepare } from '@/lib/blob-registry'
+import {
+  install,
+  inventory,
+  isRecording,
+  onChange,
+  prepare,
+  purge,
+  purgeAll,
+  setLimits,
+} from '@/lib/blob-registry'
+import { normalise } from '@/lib/limits'
 import { PAGE_COMMAND, PAGE_EVENT, type PageCommand, type PageEvent } from '@/types/messages'
 
 /**
@@ -83,11 +93,35 @@ export default defineContentScript({
         return
       }
 
+      if (command.type === 'limits') {
+        // Normalised again on this side: the page shares this document and can
+        // dispatch `blobdl:command` too, and a limit is a number this code then
+        // allocates against.
+        setLimits(normalise(command.limits))
+        return
+      }
+
       if (command.type === 'refresh') {
         // Unconditional: the bridge asks when the popup opens, and the throttle
         // above would otherwise answer a fresh popup with silence.
         lastSent = ''
         pushInventory()
+        return
+      }
+
+      if (command.type === 'purge') {
+        const { requestId, id } = command
+        try {
+          if (id === null) purgeAll()
+          else purge(id)
+          emit({ type: 'purged', requestId, result: { ok: true } })
+        } catch (error) {
+          emit({
+            type: 'purged',
+            requestId,
+            result: { ok: false, error: error instanceof Error ? error.message : String(error) },
+          })
+        }
         return
       }
 
