@@ -14,6 +14,25 @@ Do not flag as security issues: the `<all_urls>` content-script match, patching
 page globals, retaining a page's `Blob` after it revoked the URL, or reading a
 MediaSource's segments. Those are the mechanism, not a lapse.
 
+Also not a lapse: **the page can forge `blobdl:command`**, purge included. The
+hook shares a document with the page, so commands travel on a channel the page
+can both read and write; a token would be readable from the next `refresh` — the
+popup sends one every time it opens — and replayable. A channel the page cannot
+read means transferring a `MessagePort` at `document_start`, which needs
+`window.postMessage`, rejected here for the reason in `src/types/messages.ts`.
+
+What bounds it is that the events are document-scoped, so a page can only reach
+its own rows, and a page that wants to defeat this extension has a better tool
+than deleting rows after the fact. Measured in Chrome 151: an `about:blank`
+iframe's `URL.createObjectURL` is unpatched — there is no `match_about_blank`,
+so no content script runs there — and a blob minted through it never appears at
+all.
+
+The reply path is the one that is defended, and has to be: a forged `prepared`
+would hand `chrome.downloads` a URL fetched with the extension's privileges
+rather than the page's, so the bridge checks that the URL belongs to this frame
+(`checked()`).
+
 Do flag the one real cost: **the extension holds media in the page's memory** —
 512 MB per stream track and 1 GB of retained Blobs per frame by default, and
 whatever the popup's **Memory limits** say otherwise. That is a deliberate trade

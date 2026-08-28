@@ -104,7 +104,7 @@ async function save(tabId: number, frameId: number, id: string): Promise<SaveRes
   }
 }
 
-/** Drop a frame we could not reach: its document is gone, so its blobs are too. */
+/** Drop a frame with nothing listening in it: its document is gone, so its blobs are too. */
 function dropFrames(tabId: number, frameIds: number[]): Promise<void> {
   const write = writes.then(async () => {
     const frames = (await read(tabId)).filter((f) => !frameIds.includes(f.frameId))
@@ -130,13 +130,27 @@ async function purge(tabId: number, frameId: number, id: string): Promise<PurgeR
 }
 
 /**
+ * Nothing is listening in that frame, as opposed to the message failing to get
+ * through.
+ *
+ * Measured against Chrome 151, which collapses every one of these into the same
+ * sentence: a frame removed from the DOM, a frame id that never existed, and a
+ * document our content scripts do not run in. The common ground is that no
+ * bridge is there, and a frame that had one only loses it by navigating away —
+ * so whatever rows we have for it describe a document that is gone.
+ *
+ * Every other rejection — a port closed mid-flight, an invalidated extension
+ * context — means the bytes may well still be sitting in a frame we failed to
+ * reach, and both dropping its rows and reporting success would be a lie.
+ */
+const NOTHING_LISTENING = /receiving end does not exist|could not establish connection/i
+
+/**
  * The same for every frame of the tab.
  *
  * Fanned out here rather than by one frameless `sendMessage`, which reaches all
  * frames but returns only the first reply — with a button that claims to have
- * emptied the page, the frame that refused is the one thing worth knowing. A
- * frame that cannot be reached at all is a different matter: its document has
- * gone, so its rows are stale and are dropped rather than reported.
+ * emptied the page, the frame that refused is the one thing worth knowing.
  */
 async function purgeAll(tabId: number): Promise<PurgeResult> {
   const frames = await read(tabId)
@@ -152,8 +166,10 @@ async function purgeAll(tabId: number): Promise<PurgeResult> {
           { type: 'PURGE_ALL' },
           { frameId: frame.frameId },
         )) as PurgeResult
-      } catch {
-        gone.push(frame.frameId)
+      } catch (e) {
+        const failure = (e as Error).message
+        if (NOTHING_LISTENING.test(failure)) gone.push(frame.frameId)
+        else refused.push(`frame ${frame.frameId}: ${failure}`)
         return
       }
       if (!result.ok) refused.push(result.error)
