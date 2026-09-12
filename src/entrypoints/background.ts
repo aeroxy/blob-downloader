@@ -1,6 +1,8 @@
+import { allows, hostOf, normalisePolicy, POLICY_KEY } from '@/lib/policy'
 import type {
   FrameInventory,
   ListResult,
+  PolicyResult,
   PrepareResult,
   PurgeResult,
   Request,
@@ -184,6 +186,19 @@ async function purgeAll(tabId: number): Promise<PurgeResult> {
   }
 }
 
+/**
+ * Whether a frame's tab is covered by the site policy.
+ *
+ * The background answers this because it is the only place the *tab's* URL is
+ * available: `sender.tab.url` is the top-level document even for a subframe,
+ * and a cross-origin player iframe cannot see the address bar it is embedded
+ * under. See `src/lib/policy.ts` for why that is the host to match.
+ */
+async function policyFor(url: string | undefined): Promise<PolicyResult> {
+  const stored = await chrome.storage.local.get(POLICY_KEY)
+  return { capture: allows(normalisePolicy(stored[POLICY_KEY]), hostOf(url)) }
+}
+
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((message: Request, sender, sendResponse) => {
     if (message.type === 'PUSH') {
@@ -195,6 +210,15 @@ export default defineBackground(() => {
         items: message.items,
       }).catch((e: unknown) => console.error('[blobdl] failed to store an inventory:', e))
       return false
+    }
+
+    if (message.type === 'POLICY') {
+      policyFor(sender.tab?.url).then(sendResponse, () =>
+        // Unreadable storage means the behaviour from before the setting
+        // existed, not a frame that silently records nothing.
+        sendResponse({ capture: true } satisfies PolicyResult),
+      )
+      return true
     }
 
     if (message.type === 'LIST') {

@@ -41,9 +41,15 @@ export default defineConfig({
     // through the service worker.
     //
     // Note what is absent: no `webRequest`, because blobs never touch the
-    // network, and no `host_permissions` beyond what the content scripts'
-    // `<all_urls>` match already grants.
+    // network, and no `tabs`, which is the broader of the two ways to see a
+    // tab's URL.
     permissions: ['storage', 'downloads'],
+    // Only for `tab.url`, which the site policy needs and the content scripts'
+    // own `<all_urls>` match does not grant. It has to be the *tab's* host: a
+    // cross-origin player iframe cannot see the address bar it is embedded
+    // under, so matching each frame's own host would have an allowlist miss the
+    // one frame holding the media. Nothing here fetches cross-origin.
+    host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Blob Downloader',
     },

@@ -72,6 +72,7 @@ service worker, and there is no offscreen document.
 | `src/lib/blob-registry.ts` | The patches and everything they record |
 | `src/lib/segment-store.ts` | MediaSource segments, and the cap on them |
 | `src/lib/format.ts` | Naming a file for bytes that arrived without a name |
+| `src/lib/policy.ts` | Which sites it runs on, and the host matching behind that |
 
 ## Setup
 
@@ -139,6 +140,31 @@ that is struggling. One thing they cannot do is undo: raising a cap will not
 restart a stream that has already stopped, because what is kept has to be one
 unbroken run from the first segment, and resuming after a gap would hand the
 decoder fragments it has no header for. Reload and play it again.
+
+## Where it runs
+
+By default, everywhere. **Sites**, at the foot of the popup, narrows that:
+
+- **Everywhere** — the default, and what it did before this setting existed.
+- **Only these sites** — a whitelist. Nothing is captured anywhere else.
+- **Everywhere except these** — a blacklist.
+
+The quickest way in is the checkbox above the list, which names the site in the
+address bar: untick it and the extension stops on that site and hands back
+whatever it was holding there, immediately. On the default **Everywhere** that
+first untick is what starts the blacklist, so excluding one site never means
+choosing a mode first.
+
+A rule covers the site and its subdomains — `example.com` catches
+`www.example.com` and `videos.example.com`. It is matched against the address
+bar rather than each frame, so a video in an embedded player follows the page it
+is embedded in. Rules have a checkbox of their own: unticking suspends one
+without losing it, `×` forgets it.
+
+Switching a site back on catches new blobs straight away, but **a video already
+playing has to be reloaded** — the opening segment that makes the file playable
+has already gone past. On a site that is switched off the popup says so, rather
+than showing an empty list that looks like a broken extension.
 
 ## Limits
 

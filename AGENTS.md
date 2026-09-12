@@ -103,6 +103,45 @@ play nowhere.
 - `Clear all` arms on the first click. A single row does not need that; a button
   that frees a whole page of bytes does.
 
+### Where it runs
+
+`src/lib/policy.ts` owns the three modes (`all`, `allowlist`, `denylist`) and
+the two lists behind them. Two lists, not one read differently by the mode: a
+list of sites to keep this **off** is the exact inverse of a list to keep it
+**on**, so one list would silently invert on a mode change.
+
+- **The gate is not on injection.** It cannot be: the patches have to be in
+  place before the page's own scripts take a reference to
+  `URL.createObjectURL`, and `chrome.storage` is async and unreachable from the
+  page world, so the decision arrives after `document_start`. So the patches are
+  always installed and always run; on an excluded site they are pass-throughs.
+  `setCapturing(false)` therefore *purges* as well as stopping — a `document_start`
+  page can mint a blob inside that one-message window, and holding it would
+  defeat the point of excluding the site.
+- **Matched against the tab's host, not the frame's.** A blog that embeds a
+  player from another origin keeps its media in that frame; matching each
+  frame's own host would have an allowlist for the blog miss the only frame that
+  mattered. The tab's URL is available in exactly one place — `sender.tab.url`
+  in the background — which is why the bridge *asks* rather than reading storage
+  and deciding for itself, and why `host_permissions` is now in the manifest.
+- A rule covers its host and every subdomain, and is matched only on http(s):
+  `chrome://extensions` parses with a hostname of `extensions`, and a rule
+  written for a site has no business matching a browser page.
+- Unchecking a rule suspends it; `×` forgets it. Both, because a list that can
+  only grow becomes unreadable, and a rule you want back next week should not
+  have to be retyped.
+- **`capture()` is asymmetric, and has to be.** Switching a site *on* writes the
+  exact host — reactivating a switched-off parent would cover the whole domain
+  rather than the one site asked for. Switching a site *off* clears every rule
+  that covers it, parents included, or the site stays matched from above and the
+  checkbox visibly does nothing.
+- Unticking the per-site box while the mode is still `all` is what starts a
+  denylist. Otherwise excluding one site would mean choosing a mode first, and
+  the mode is the part nobody wants to think about.
+- Switching a site back on cannot undo the gap. New blobs are caught at once,
+  but a video already playing appended its initialisation segment past a
+  pass-through patch, so the popup says to reload rather than implying otherwise.
+
 ### Memory limits
 
 `src/lib/limits.ts` owns the shape, the defaults and the bounds; the popup

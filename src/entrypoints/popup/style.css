@@ -69,6 +69,100 @@ h1 {
   color: var(--warn);
 }
 
+/* The one control that is about the page in front of you, so it sits with the
+   page rather than down in the settings. */
+.site {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.site[hidden] {
+  /* An author rule beats the UA's `[hidden]`, so `display: flex` above would
+     otherwise keep the row up — empty label and all — on a page with no host. */
+  display: none;
+}
+
+.site:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+#site-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.modes label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.rules {
+  margin-top: 8px;
+}
+
+.rule {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.rule label {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.rule span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Square, so a column of them lines up whatever the hostname's width. */
+.rule button.ghost {
+  padding: 1px 6px;
+  line-height: 1.2;
+}
+
+#rule-host {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+#rules-note {
+  color: var(--warn);
+  font-size: 11px;
+}
+
 .origin {
   padding: 8px 14px 2px;
   color: var(--dim);

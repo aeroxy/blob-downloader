@@ -86,6 +86,14 @@ export type PageCommand =
    * not reachable from the page world, so this is the only way in.
    */
   | { type: 'limits'; limits: Limits }
+  /**
+   * Whether the site policy covers this tab. Sent once as soon as the bridge
+   * has the answer, and again whenever the policy changes. `false` stops
+   * recording *and* hands back whatever the frame is already holding — see
+   * `setCapturing` in `src/lib/blob-registry.ts` for why the gate cannot be on
+   * injection instead.
+   */
+  | { type: 'capture'; on: boolean }
 
 /* ---------- bridge / popup ⇄ background ---------- */
 
@@ -101,6 +109,15 @@ export interface FrameInventory {
 export type Request =
   /** bridge → background, on every change. The background only aggregates. */
   | { type: 'PUSH'; origin: string; items: Item[] }
+  /**
+   * bridge → background: does the site policy cover me?
+   *
+   * Asked rather than read out of storage directly, because the answer is about
+   * the *tab's* host and a subframe cannot see it — `sender.tab.url` is the one
+   * place it is available. See `src/lib/policy.ts` for why the tab's host is the
+   * right one to match.
+   */
+  | { type: 'POLICY' }
   | { type: 'LIST'; tabId: number }
   | { type: 'SAVE'; tabId: number; frameId: number; id: string }
   | { type: 'PURGE'; tabId: number; frameId: number; id: string }
@@ -134,6 +151,9 @@ export type PrepareResult =
   | { ok: false; error: string }
 
 export type ListResult = { frames: FrameInventory[] }
+
+/** What the background tells a frame about its own tab. */
+export type PolicyResult = { capture: boolean }
 
 /** Done, or the one line explaining why not. */
 export type Ack = { ok: true } | { ok: false; error: string }

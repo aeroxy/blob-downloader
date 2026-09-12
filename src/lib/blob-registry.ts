@@ -50,6 +50,18 @@ const MAX_ITEMS = 300
  */
 let limits: Limits = DEFAULT_LIMITS
 
+/**
+ * Whether this frame records anything at all.
+ *
+ * True until told otherwise, and it has to be: the patches are installed at
+ * `document_start` because a page that takes its own reference to
+ * `URL.createObjectURL` before us is invisible afterwards, and the site policy
+ * lives in `chrome.storage` — async, and unreachable from this world — so it
+ * cannot be known that early. The window is one message wide; what lands in it
+ * is handed back by `setCapturing(false)` rather than kept.
+ */
+let capturing = true
+
 /* Captured before anything else can touch them. */
 const nativeCreateObjectURL = URL.createObjectURL.bind(URL)
 const nativeRevokeObjectURL = URL.revokeObjectURL.bind(URL)
@@ -129,6 +141,31 @@ export function setLimits(next: Limits): void {
   for (const track of tracks.values()) track.store.setMax(next.trackBytes)
   if (retainedBytes > next.retainedBytes) evict(0)
   notify()
+}
+
+/**
+ * Start or stop recording, for a site the policy does or doesn't cover.
+ *
+ * Switching off gives the bytes back at once instead of merely declining the
+ * next blob: the point of excluding a site is that this extension is not to
+ * hold its media, and by the time the decision arrives a `document_start` page
+ * may already have minted one.
+ *
+ * Switching on cannot undo the gap. New blobs are caught from here, but a
+ * stream that was already playing has appended its initialisation segment
+ * past a pass-through patch, and what follows would decode nowhere — so the
+ * page has to be reloaded. The popup says so rather than implying otherwise.
+ */
+export function setCapturing(on: boolean): void {
+  if (on === capturing) return
+  capturing = on
+  if (!on) purgeAll()
+  else notify()
+}
+
+/** For the patches: when this frame's site isn't covered, they are pass-throughs. */
+export function isCapturing(): boolean {
+  return capturing
 }
 
 /* ---------- real Blobs ---------- */
@@ -590,9 +627,15 @@ export function install(): void {
 
   const NativeMediaSource = typeof MediaSource === 'undefined' ? null : MediaSource
 
+  // The three patches that record something check `capturing` and are plain
+  // pass-throughs when this frame's site is not covered by the policy. Their
+  // two counterparts — `revokeObjectURL` and `endOfStream` — only ever look up
+  // what was recorded, so on an excluded site they find nothing and need no
+  // gate of their own.
   URL.createObjectURL = function createObjectURL(object: Blob | MediaSource): string {
     const url = nativeCreateObjectURL(object as Blob)
     try {
+      if (!capturing) return url
       if (NativeMediaSource !== null && object instanceof NativeMediaSource) {
         // A URL for a MediaSource: no bytes behind it, and nothing to record
         // until the player appends. This only links the stream to its URL, so
@@ -626,7 +669,7 @@ export function install(): void {
   ): SourceBuffer {
     const buffer = nativeAddSourceBuffer.call(this, mime)
     try {
-      noteSourceBuffer(this, buffer, mime)
+      if (capturing) noteSourceBuffer(this, buffer, mime)
     } catch {
       /* as above */
     }
@@ -661,7 +704,7 @@ export function install(): void {
     // ever saw.
     nativeAppendBuffer.call(this, data as BufferSource)
     try {
-      noteAppend(this, data)
+      if (capturing) noteAppend(this, data)
     } catch {
       /* as above */
     }

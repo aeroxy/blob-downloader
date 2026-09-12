@@ -1,4 +1,5 @@
 import { LIMITS_KEY, normalise } from '@/lib/limits'
+import { POLICY_KEY } from '@/lib/policy'
 import {
   PAGE_COMMAND,
   PAGE_EVENT,
@@ -6,6 +7,7 @@ import {
   type Item,
   type PageCommand,
   type PageEvent,
+  type PolicyResult,
   type PrepareResult,
   type PurgeResult,
   type Request,
@@ -160,10 +162,36 @@ export default defineContentScript({
       // Nothing readable means the defaults, which the hook is already using.
       .catch(() => {})
 
+    /**
+     * Whether the policy covers this tab.
+     *
+     * Asked of the background rather than read from storage here, for the one
+     * thing this frame cannot know: the policy matches the *tab's* host, and a
+     * cross-origin subframe cannot see it. `sender.tab.url` can.
+     *
+     * A failure is read as covered. The alternative — silently recording
+     * nothing because the service worker was mid-restart — would look exactly
+     * like an extension that had stopped working, and the honest default is
+     * the behaviour from before the setting existed.
+     */
+    const askPolicy = (): void => {
+      void chrome.runtime
+        .sendMessage({ type: 'POLICY' } satisfies Request)
+        .then((result: PolicyResult | undefined) => {
+          command({ type: 'capture', on: result?.capture !== false })
+        })
+        .catch(() => {})
+    }
+
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local' || !(LIMITS_KEY in changes)) return
-      sendLimits(changes[LIMITS_KEY]?.newValue)
+      if (area !== 'local') return
+      if (LIMITS_KEY in changes) sendLimits(changes[LIMITS_KEY]?.newValue)
+      // Re-asked rather than recomputed from the new value: the decision needs
+      // this tab's host, which is still only the background's to know.
+      if (POLICY_KEY in changes) askPolicy()
     })
+
+    askPolicy()
 
     // The hook is installed before this runs, so anything it found in the
     // meantime is already waiting to be asked for.

@@ -6,6 +6,7 @@ import {
   prepare,
   purge,
   purgeAll,
+  setCapturing,
   setLimits,
 } from '@/lib/blob-registry'
 import { normalise } from '@/lib/limits'
@@ -90,6 +91,14 @@ export default defineContentScript({
       try {
         command = JSON.parse(detail) as PageCommand
       } catch {
+        return
+      }
+
+      if (command.type === 'capture') {
+        // The patches are installed either way — they have to be, before the
+        // page's own scripts run — so this is the only gate there is, and
+        // switching it off gives back what the frame was already holding.
+        setCapturing(command.on === true)
         return
       }
 

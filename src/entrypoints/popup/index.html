@@ -15,8 +15,34 @@
       </div>
       <button id="clear-all" class="ghost" disabled>Clear all</button>
     </header>
+    <label id="site" class="site" hidden>
+      <input id="site-on" type="checkbox" />
+      <span id="site-label"></span>
+    </label>
     <main id="list"></main>
     <footer>
+      <details>
+        <summary>Sites</summary>
+        <div class="modes">
+          <label><input type="radio" name="mode" value="all" /> Everywhere</label>
+          <label><input type="radio" name="mode" value="allowlist" /> Only these sites</label>
+          <label><input type="radio" name="mode" value="denylist" /> Everywhere except these</label>
+        </div>
+        <div id="rules" class="rules"></div>
+        <div class="apply">
+          <input id="rule-host" type="text" placeholder="example.com" />
+          <button id="rule-add">Add</button>
+          <span id="rules-note"></span>
+        </div>
+        <p class="hint">
+          A rule covers the site and its subdomains, and is matched against the
+          address bar — so a video in an embedded player follows the page it is
+          embedded in. Unchecking a rule suspends it without losing it. Turning
+          a site off frees whatever this extension was holding there at once;
+          turning one on catches new blobs, but a video already playing has to
+          be reloaded, because its opening segment is already past.
+        </p>
+      </details>
       <details>
         <summary>Memory limits</summary>
         <div class="fields">

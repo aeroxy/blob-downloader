@@ -1,5 +1,18 @@
 import { humanSize } from '@/lib/format'
 import { BOUNDS, LIMITS_KEY, fromMB, normalise, toMB } from '@/lib/limits'
+import {
+  allows,
+  capture,
+  hostOf,
+  listKey,
+  normaliseHost,
+  normalisePolicy,
+  POLICY_KEY,
+  remove as removeRule,
+  toggle as toggleRule,
+  type Policy,
+  type Site,
+} from '@/lib/policy'
 import type {
   FrameInventory,
   Item,
@@ -27,14 +40,54 @@ const trackInput = document.getElementById('track') as HTMLInputElement
 const retainedInput = document.getElementById('retained') as HTMLInputElement
 const applyButton = document.getElementById('apply') as HTMLButtonElement
 const limitsNote = document.getElementById('limits-note')!
+const site = document.getElementById('site')!
+const siteOn = document.getElementById('site-on') as HTMLInputElement
+const siteLabel = document.getElementById('site-label')!
+const rules = document.getElementById('rules')!
+const ruleHost = document.getElementById('rule-host') as HTMLInputElement
+const ruleAdd = document.getElementById('rule-add') as HTMLButtonElement
+const rulesNote = document.getElementById('rules-note')!
 
 /** Re-rendering under a click would replace the button mid-request — of which there can be more than one. */
 let busy = 0
 let lastRendered = ''
+/**
+ * Whether the site rules cover the tab this popup is over.
+ *
+ * The list looks identical either way — empty — so the empty state has to be
+ * the thing that distinguishes "nothing here yet, play the video" from "this
+ * site is switched off", which is otherwise indistinguishable from broken.
+ */
+let capturingHere = true
+
+/**
+ * The host in the address bar, or null on a page that has none. Separate from
+ * `capturingHere` because the two empty states differ: a site that is switched
+ * off has a checkbox to tick, a page with no host has nothing to name.
+ */
+let hereHost: string | null = null
 
 function empty(): HTMLElement {
   const div = document.createElement('div')
   div.className = 'empty'
+  if (!capturingHere) {
+    div.innerHTML =
+      hereHost === null
+        ? `
+      <p><strong>Not capturing on this page.</strong> It has no address to match
+         a rule against — a browser page, the Web Store, <code>about:blank</code>.</p>
+      <p>The site list below still applies everywhere else.</p>
+    `
+        : `
+      <p><strong>Not capturing on this site.</strong> Nothing here is being
+         detected, and nothing is being held in the page's memory.</p>
+      <p>Tick the box above to capture here. New blobs are picked up straight
+         away; a video that is already playing has to be reloaded first,
+         because the opening segment that makes the file playable has gone
+         past.</p>
+    `
+    return div
+  }
   div.innerHTML = `
     <p>Nothing yet.</p>
     <p><strong>Files</strong> appear the moment the page makes a
@@ -190,7 +243,11 @@ function render(frames: FrameInventory[], tabId: number): void {
 
   summary.textContent =
     total === 0
-      ? 'No blobs detected.'
+      ? capturingHere
+        ? 'No blobs detected.'
+        : hereHost === null
+          ? 'No site here to switch on.'
+          : 'Switched off for this site.'
       : `${total} item${total === 1 ? '' : 's'} · ${humanSize(bytes)} available` +
         (held > 0 ? ` · ${humanSize(held)} held` : '')
   clearAll.disabled = total === 0
@@ -264,6 +321,146 @@ function wireClearAll(tabId: number): void {
 }
 
 /**
+ * Where this extension runs.
+ *
+ * Written to `chrome.storage.local` and nothing else, like the limits: every
+ * frame's bridge is watching for the change and re-asks the background whether
+ * its tab is still covered. Nothing here has to reach the tab itself.
+ *
+ * `here` is the host in the address bar, or null on a page that has none — a
+ * `chrome://` page, the Web Store, a PDF. The rules are extension-wide, so
+ * they are editable from there too; only the per-site checkbox is not.
+ */
+async function wireSites(here: string | null): Promise<void> {
+  const modeRadios = [...document.querySelectorAll<HTMLInputElement>('input[name="mode"]')]
+
+  const stored = (await chrome.storage.local.get(POLICY_KEY).catch(() => ({}))) as Record<
+    string,
+    unknown
+  >
+  let policy = normalisePolicy(stored[POLICY_KEY])
+
+  /**
+   * Drawn from `policy` and persisted after, rather than waiting for the write:
+   * a checkbox that lags a storage round-trip reads as a click that missed.
+   */
+  const write = (next: Policy): void => {
+    policy = next
+    rulesNote.textContent = ''
+    draw()
+    void chrome.storage.local.set({ [POLICY_KEY]: next }).catch((e: unknown) => {
+      rulesNote.textContent = `Could not save: ${(e as Error).message}`
+    })
+  }
+
+  const ruleRow = (key: 'allow' | 'deny', entry: Site): HTMLElement => {
+    const el = document.createElement('div')
+    el.className = 'rule'
+
+    const label = document.createElement('label')
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.checked = entry.on
+    const host = document.createElement('span')
+    host.textContent = entry.host
+    host.title = `${entry.host} and its subdomains`
+    label.append(box, host)
+    box.addEventListener('change', () => {
+      write(toggleRule(policy, key, entry.host, box.checked))
+    })
+
+    // Unchecking suspends a rule; this forgets it. Both are worth having — a
+    // list you cannot prune grows until it is unreadable.
+    const drop = document.createElement('button')
+    drop.className = 'ghost'
+    drop.textContent = '×'
+    drop.title = `Forget the rule for ${entry.host}`
+    drop.addEventListener('click', () => {
+      write(removeRule(policy, key, entry.host))
+    })
+
+    el.append(label, drop)
+    return el
+  }
+
+  function draw(): void {
+    for (const radio of modeRadios) radio.checked = radio.value === policy.mode
+
+    const on = allows(policy, here)
+    if (on !== capturingHere) {
+      capturingHere = on
+      // The list itself does not change shape, so the poll's own
+      // did-anything-change check would leave the stale empty state up.
+      lastRendered = ''
+    }
+    site.hidden = here === null
+    if (here !== null) {
+      siteOn.checked = on
+      siteLabel.textContent = on ? `Capturing on ${here}` : `Not capturing on ${here}`
+    }
+
+    const key = listKey(policy.mode)
+    rules.textContent = ''
+    ruleHost.disabled = key === null
+    ruleAdd.disabled = key === null
+
+    if (key === null) {
+      const note = document.createElement('p')
+      note.className = 'hint'
+      note.textContent = 'Running everywhere. Pick one of the other two to keep a list.'
+      rules.append(note)
+      return
+    }
+    if (policy[key].length === 0) {
+      const note = document.createElement('p')
+      note.className = 'hint'
+      note.textContent =
+        policy.mode === 'allowlist'
+          ? 'No sites listed, so nothing is captured anywhere.'
+          : 'No sites listed, so everything is captured.'
+      rules.append(note)
+      return
+    }
+    for (const entry of policy[key]) rules.append(ruleRow(key, entry))
+  }
+
+  siteOn.addEventListener('change', () => {
+    if (here === null) return
+    // Unticking on a page where the mode is still `all` is what starts a
+    // denylist — see `capture` in `src/lib/policy.ts`.
+    write(capture(policy, here, siteOn.checked))
+  })
+
+  for (const radio of modeRadios) {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return
+      write({ ...policy, mode: radio.value as Policy['mode'] })
+    })
+  }
+
+  const add = (): void => {
+    const key = listKey(policy.mode)
+    if (key === null) return
+    const host = normaliseHost(ruleHost.value)
+    if (host === null) {
+      rulesNote.textContent = 'Not a hostname.'
+      return
+    }
+    ruleHost.value = ''
+    // Re-adding a host it already has moves it to the end switched on, rather
+    // than leaving a second row claiming to control the same site.
+    write({ ...policy, [key]: [...policy[key].filter((s) => s.host !== host), { host, on: true }] })
+  }
+
+  ruleAdd.addEventListener('click', add)
+  ruleHost.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') add()
+  })
+
+  draw()
+}
+
+/**
  * The two memory ceilings.
  *
  * Written to `chrome.storage.local` and nothing else: every frame's bridge is
@@ -328,6 +525,12 @@ async function main(): Promise<void> {
   void wireLimits()
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  // Before the tab check too, for the same reason: the rules are extension-wide
+  // and worth reaching from a `chrome://` tab. The per-site checkbox hides
+  // itself when there is no host to name.
+  hereHost = hostOf(tab?.url)
+  await wireSites(hereHost)
+
   if (tab?.id === undefined) {
     summary.textContent = 'No page here.'
     return
