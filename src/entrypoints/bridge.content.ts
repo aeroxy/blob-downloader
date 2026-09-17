@@ -62,7 +62,20 @@ export default defineContentScript({
   allFrames: true,
 
   main() {
-    const pending = new Map<string, (result: PrepareResult | PurgeResult) => void>()
+    /**
+     * What each in-flight request is waiting for, not just who to hand it to.
+     *
+     * The expected type is half the key. The page reads `requestId` out of the
+     * `blobdl:command` event it shares a document with, so without it a forged
+     * `purged` could settle a pending PREPARE — taking the `ack` branch and
+     * stepping around `checked()` entirely — and a forged `prepared` could
+     * report a purge that never happened as done. A reply of the wrong type is
+     * not this request's reply, so it is dropped and the real one still fits.
+     */
+    const pending = new Map<
+      string,
+      { expect: 'prepared' | 'purged'; settle: (result: PrepareResult | PurgeResult) => void }
+    >()
     let requests = 0
 
     const command = (message: PageCommand): void => {
@@ -77,12 +90,13 @@ export default defineContentScript({
      * bridge with no hook on the other side.
      */
     const ask = (
+      expect: 'prepared' | 'purged',
       build: (requestId: string) => PageCommand,
       sendResponse: (result: PrepareResult | PurgeResult) => void,
       timedOut: PrepareResult | PurgeResult,
     ): void => {
       const requestId = `r${++requests}`
-      pending.set(requestId, sendResponse)
+      pending.set(requestId, { expect, settle: sendResponse })
       setTimeout(() => {
         if (!pending.delete(requestId)) return
         sendResponse(timedOut)
@@ -113,32 +127,83 @@ export default defineContentScript({
 
       if (message.type !== 'prepared' && message.type !== 'purged') return
       if (typeof message.requestId !== 'string') return
-      const settle = pending.get(message.requestId)
-      if (!settle) return
+      const waiter = pending.get(message.requestId)
+      if (!waiter || waiter.expect !== message.type) return
       pending.delete(message.requestId)
-      settle(message.type === 'prepared' ? checked(message.result) : ack(message.result))
+      waiter.settle(message.type === 'prepared' ? checked(message.result) : ack(message.result))
     })
+
+    /**
+     * Whether the policy covers this tab.
+     *
+     * Asked of the background rather than read from storage here, for the one
+     * thing this frame cannot know: the policy matches the *tab's* host, and a
+     * cross-origin subframe cannot see it. `sender.tab.url` can.
+     *
+     * A failure is read as covered. The alternative — silently recording
+     * nothing because the service worker was mid-restart — would look exactly
+     * like an extension that had stopped working, and the honest default is
+     * the behaviour from before the setting existed.
+     *
+     * But it is read as covered only until an answer arrives, which is why a
+     * failure retries rather than settling. This runs at `document_start`, so
+     * the worker it asks may still be starting; giving up there would leave the
+     * frame capturing — and holding memory — on a site the user had excluded,
+     * until the tab navigated. The popup is the backstop: it nudges every frame
+     * on open, and a frame that never got an answer asks again then.
+     *
+     * Which is also why only the newest ask counts. Several can be in flight —
+     * a retry still pending when a policy change lands, say — and they answer
+     * in whatever order the worker gets to them. An older answer arriving last
+     * would put the frame back on a site that had just been switched off, and
+     * nothing would correct it until the policy changed again.
+     */
+    const POLICY_RETRY_MS = 1_000
+    let policyKnown = false
+    let policyAsk = 0
+
+    const askPolicy = (retry = true): void => {
+      const asked = ++policyAsk
+      void chrome.runtime
+        .sendMessage({ type: 'POLICY' } satisfies Request)
+        .then((result: PolicyResult | undefined) => {
+          if (asked !== policyAsk) return
+          policyKnown = true
+          command({ type: 'capture', on: result?.capture !== false })
+        })
+        .catch(() => {
+          // A newer ask is already on its way with the answer this one wanted.
+          if (retry && asked === policyAsk) setTimeout(() => askPolicy(false), POLICY_RETRY_MS)
+        })
+    }
 
     chrome.runtime.onMessage.addListener((request: FrameRequest, _sender, sendResponse) => {
       if (request.type === 'REFRESH') {
+        // Only when both asks failed: the popup polls, and a POLICY round trip
+        // per tick per frame would be a lot of traffic to learn nothing.
+        if (!policyKnown) askPolicy()
         command({ type: 'refresh' })
         return false
       }
 
       if (request.type === 'PREPARE') {
-        ask((requestId) => ({ type: 'prepare', requestId, id: request.id }), sendResponse, {
-          ok: false,
-          error: 'The page did not respond.',
-        } satisfies PrepareResult)
+        ask(
+          'prepared',
+          (requestId) => ({ type: 'prepare', requestId, id: request.id }),
+          sendResponse,
+          { ok: false, error: 'The page did not respond.' } satisfies PrepareResult,
+        )
         return true
       }
 
       if (request.type === 'PURGE' || request.type === 'PURGE_ALL') {
         const id = request.type === 'PURGE' ? request.id : null
-        ask((requestId) => ({ type: 'purge', requestId, id }), sendResponse, {
-          ok: false,
-          error: 'The page did not respond.',
-        } satisfies PurgeResult)
+        ask(
+          'purged',
+          (requestId) => ({ type: 'purge', requestId, id }),
+          sendResponse,
+          { ok: false, error: 'The page did not respond.' } satisfies PurgeResult,
+        )
         return true
       }
 
@@ -161,27 +226,6 @@ export default defineContentScript({
       .then((stored) => sendLimits(stored[LIMITS_KEY]))
       // Nothing readable means the defaults, which the hook is already using.
       .catch(() => {})
-
-    /**
-     * Whether the policy covers this tab.
-     *
-     * Asked of the background rather than read from storage here, for the one
-     * thing this frame cannot know: the policy matches the *tab's* host, and a
-     * cross-origin subframe cannot see it. `sender.tab.url` can.
-     *
-     * A failure is read as covered. The alternative — silently recording
-     * nothing because the service worker was mid-restart — would look exactly
-     * like an extension that had stopped working, and the honest default is
-     * the behaviour from before the setting existed.
-     */
-    const askPolicy = (): void => {
-      void chrome.runtime
-        .sendMessage({ type: 'POLICY' } satisfies Request)
-        .then((result: PolicyResult | undefined) => {
-          command({ type: 'capture', on: result?.capture !== false })
-        })
-        .catch(() => {})
-    }
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return

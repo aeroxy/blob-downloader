@@ -70,15 +70,23 @@ let hereHost: string | null = null
 function empty(): HTMLElement {
   const div = document.createElement('div')
   div.className = 'empty'
-  if (!capturingHere) {
-    div.innerHTML =
-      hereHost === null
-        ? `
-      <p><strong>Not capturing on this page.</strong> It has no address to match
-         a rule against — a browser page, the Web Store, <code>about:blank</code>.</p>
-      <p>The site list below still applies everywhere else.</p>
+  // Before the capture check, because it outranks it: under **Everywhere** a
+  // page with no host counts as covered, and would otherwise be told to reload
+  // — advice that can never work on a page no content script reaches.
+  if (hereHost === null) {
+    div.innerHTML = `
+      <p><strong>No site here.</strong> This page has no http(s) address, so no
+         site rule matches it — which is why there is no switch for it above.</p>
+      <p>A browser page — <code>chrome://</code>, the extensions list, a PDF
+         viewer — is out of reach of any extension's content scripts. A local
+         <code>file://</code> page needs <em>Allow access to file URLs</em> on
+         this extension's details page.</p>
     `
-        : `
+    return div
+  }
+
+  if (!capturingHere) {
+    div.innerHTML = `
       <p><strong>Not capturing on this site.</strong> Nothing here is being
          detected, and nothing is being held in the page's memory.</p>
       <p>Tick the box above to capture here. New blobs are picked up straight
@@ -189,6 +197,12 @@ function row(item: Item, frameId: number, tabId: number): HTMLElement {
       const result = (await chrome.runtime.sendMessage(message)) as SaveResult | PurgeResult
       restore()
       if (result.ok) {
+        // The note belonged to an attempt that failed; this one didn't. Nothing
+        // else will clear it on a save: the row is unchanged, so the inventory
+        // is unchanged, so the poll has nothing to re-render — and the row
+        // would sit there reading `Saved` under a red failure.
+        failure?.remove()
+        failure = null
         button.textContent = done
         // Whatever this button did has been done; the refresh a moment later
         // decides what the row can do next.
@@ -243,10 +257,10 @@ function render(frames: FrameInventory[], tabId: number): void {
 
   summary.textContent =
     total === 0
-      ? capturingHere
-        ? 'No blobs detected.'
-        : hereHost === null
-          ? 'No site here to switch on.'
+      ? hereHost === null
+        ? 'No site here to switch on.'
+        : capturingHere
+          ? 'No blobs detected.'
           : 'Switched off for this site.'
       : `${total} item${total === 1 ? '' : 's'} · ${humanSize(bytes)} available` +
         (held > 0 ? ` · ${humanSize(held)} held` : '')

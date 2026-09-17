@@ -163,11 +163,6 @@ export function setCapturing(on: boolean): void {
   else notify()
 }
 
-/** For the patches: when this frame's site isn't covered, they are pass-throughs. */
-export function isCapturing(): boolean {
-  return capturing
-}
-
 /* ---------- real Blobs ---------- */
 
 function release(entry: BlobEntry): void {

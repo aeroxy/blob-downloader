@@ -37,8 +37,10 @@
         <p class="hint">
           A rule covers the site and its subdomains, and is matched against the
           address bar — so a video in an embedded player follows the page it is
-          embedded in. Unchecking a rule suspends it without losing it. Turning
-          a site off frees whatever this extension was holding there at once;
+          embedded in. Unchecking a rule suspends it without losing it, and
+          switching a site off suspends every rule that covered it — a parent
+          domain's included, so its other subdomains follow. Turning a site off
+          frees whatever this extension was holding there at once;
           turning one on catches new blobs, but a video already playing has to
           be reloaded, because its opening segment is already past.
         </p>

@@ -118,20 +118,6 @@ function dropFrames(tabId: number, frameIds: number[]): Promise<void> {
 }
 
 /**
- * Hand one item's memory back to the page.
- *
- * Nothing to do here afterwards: the frame's own inventory is the source of
- * truth, so the row and the badge correct themselves on the next PUSH.
- */
-async function purge(tabId: number, frameId: number, id: string): Promise<PurgeResult> {
-  try {
-    return (await chrome.tabs.sendMessage(tabId, { type: 'PURGE', id }, { frameId })) as PurgeResult
-  } catch (e) {
-    return { ok: false, error: `Could not reach the page: ${(e as Error).message}` }
-  }
-}
-
-/**
  * Nothing is listening in that frame, as opposed to the message failing to get
  * through.
  *
@@ -146,6 +132,30 @@ async function purge(tabId: number, frameId: number, id: string): Promise<PurgeR
  * reach, and both dropping its rows and reporting success would be a lie.
  */
 const NOTHING_LISTENING = /receiving end does not exist|could not establish connection/i
+
+/**
+ * Hand one item's memory back to the page.
+ *
+ * Nothing to do here when the frame answers: its own inventory is the source of
+ * truth, so the row and the badge correct themselves on the next PUSH.
+ *
+ * When nothing is listening there, no PUSH is ever coming — the document is
+ * gone and its blobs with it — so dropping the rows *is* the purge. Without
+ * that, `Remove` on a row left behind by a navigated-away subframe fails for
+ * ever and the badge keeps counting a dead document.
+ */
+async function purge(tabId: number, frameId: number, id: string): Promise<PurgeResult> {
+  try {
+    return (await chrome.tabs.sendMessage(tabId, { type: 'PURGE', id }, { frameId })) as PurgeResult
+  } catch (e) {
+    const failure = (e as Error).message
+    if (!NOTHING_LISTENING.test(failure)) {
+      return { ok: false, error: `Could not reach the page: ${failure}` }
+    }
+    await dropFrames(tabId, [frameId])
+    return { ok: true }
+  }
+}
 
 /**
  * The same for every frame of the tab.
@@ -182,7 +192,10 @@ async function purgeAll(tabId: number): Promise<PurgeResult> {
   if (refused.length === 0) return { ok: true }
   return {
     ok: false,
-    error: refused.length === 1 ? refused[0]! : `${refused.length} frames refused: ${refused[0]!}`,
+    error:
+      refused.length === 1
+        ? refused[0]!
+        : `${refused.length} frames refused: ${refused.slice(0, 2).join('; ')}`,
   }
 }
 
