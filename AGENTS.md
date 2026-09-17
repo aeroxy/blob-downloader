@@ -39,6 +39,14 @@ whatever the popup's **Memory limits** say otherwise. That is a deliberate trade
 (it is what makes a revoked blob recoverable and a stream saveable at all) and
 the caps and their notes should stay honest in the popup.
 
+Those caps are a budget, not a boundary. `limits` is forgeable like every other
+command, so what the popup's numbers bound is how much a page that leaves them
+alone can make this extension retain. A page that forges a higher one gets more
+of its own media held in its own document — `normalise()` still clamps the
+forged value to `BOUNDS` — and that is memory it could have allocated directly
+without this extension in the picture. Worth saying plainly in the popup's
+notes rather than hardening: there is no capability here to take away.
+
 ### Saving: do not re-propose the anchor click
 
 The page-world `<a download>` was the first design and it is wrong. It needs no

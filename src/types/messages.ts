@@ -152,8 +152,15 @@ export type PrepareResult =
 
 export type ListResult = { frames: FrameInventory[] }
 
-/** What the background tells a frame about its own tab. */
-export type PolicyResult = { capture: boolean }
+/**
+ * What the background tells a frame about its own tab.
+ *
+ * `null` is not an answer: it is the background saying it could not read the
+ * policy. A frame that gets one keeps whatever capture state it already has
+ * and asks again, because the alternative — reporting `true` — would switch
+ * recording back on in a frame that had correctly been told to stop.
+ */
+export type PolicyResult = { capture: boolean | null }
 
 /** Done, or the one line explaining why not. */
 export type Ack = { ok: true } | { ok: false; error: string }

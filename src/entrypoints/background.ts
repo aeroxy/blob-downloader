@@ -227,9 +227,12 @@ export default defineBackground(() => {
 
     if (message.type === 'POLICY') {
       policyFor(sender.tab?.url).then(sendResponse, () =>
-        // Unreadable storage means the behaviour from before the setting
-        // existed, not a frame that silently records nothing.
-        sendResponse({ capture: true } satisfies PolicyResult),
+        // Said as "could not read it", not as `true`. The frame's own default
+        // is already to capture until told otherwise, so answering `true` adds
+        // nothing on a fresh frame — and on one that had been told to stop it
+        // would start it again, which is the one direction this must not fail
+        // in. The bridge keeps what it has and asks again.
+        sendResponse({ capture: null } satisfies PolicyResult),
       )
       return true
     }

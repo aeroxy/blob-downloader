@@ -140,12 +140,16 @@ export default defineContentScript({
      * thing this frame cannot know: the policy matches the *tab's* host, and a
      * cross-origin subframe cannot see it. `sender.tab.url` can.
      *
-     * A failure is read as covered. The alternative — silently recording
-     * nothing because the service worker was mid-restart — would look exactly
+     * A failure changes nothing — it is not an answer, so the frame is told
+     * nothing and keeps the state it has. On a fresh frame that means covered,
+     * because the registry captures until told otherwise: silently recording
+     * nothing because the service worker was mid-restart would look exactly
      * like an extension that had stopped working, and the honest default is
-     * the behaviour from before the setting existed.
+     * the behaviour from before the setting existed. On a frame already told
+     * to stop it means staying stopped, which is the half that matters — a
+     * failed lookup must never be the thing that starts recording again.
      *
-     * But it is read as covered only until an answer arrives, which is why a
+     * Either way it holds only until an answer arrives, which is why a
      * failure retries rather than settling. This runs at `document_start`, so
      * the worker it asks may still be starting; giving up there would leave the
      * frame capturing — and holding memory — on a site the user had excluded,
@@ -162,18 +166,38 @@ export default defineContentScript({
     let policyKnown = false
     let policyAsk = 0
 
+    /**
+     * No answer, from either end: the worker never replied, or it replied that
+     * it could not read the policy. Either way the frame keeps the capture
+     * state it has — it is not told anything — and tries again.
+     */
+    const policyUnknown = (retry: boolean): void => {
+      if (retry) {
+        setTimeout(() => askPolicy(false), POLICY_RETRY_MS)
+        return
+      }
+      // Out of tries. Marking it unknown is what lets the popup's next nudge
+      // pick this up, rather than leaving the frame on a guess for the life of
+      // the document — which is what a policy change we failed to hear is.
+      policyKnown = false
+    }
+
     const askPolicy = (retry = true): void => {
       const asked = ++policyAsk
       void chrome.runtime
         .sendMessage({ type: 'POLICY' } satisfies Request)
         .then((result: PolicyResult | undefined) => {
           if (asked !== policyAsk) return
+          if (result?.capture == null) {
+            policyUnknown(retry)
+            return
+          }
           policyKnown = true
-          command({ type: 'capture', on: result?.capture !== false })
+          command({ type: 'capture', on: result.capture })
         })
         .catch(() => {
           // A newer ask is already on its way with the answer this one wanted.
-          if (retry && asked === policyAsk) setTimeout(() => askPolicy(false), POLICY_RETRY_MS)
+          if (asked === policyAsk) policyUnknown(retry)
         })
     }
 
