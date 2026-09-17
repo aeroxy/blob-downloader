@@ -28,8 +28,13 @@ describe('normaliseHost', () => {
     expect(normaliseHost('localhost')).toBe('localhost')
   })
 
+  test('accepts the absolute form, which is the same host', () => {
+    expect(normaliseHost('example.com.')).toBe('example.com')
+    expect(normaliseHost('https://www.example.com./watch')).toBe('www.example.com')
+  })
+
   test('refuses what is not a hostname', () => {
-    for (const typed of ['', '   ', 'two words', 'exam ple.com', 'https://', '-x.com', 'a..b'])
+    for (const typed of ['', '   ', 'two words', 'exam ple.com', 'https://', '-x.com', 'a..b', '.'])
       expect(normaliseHost(typed)).toBeNull()
   })
 })
@@ -37,6 +42,12 @@ describe('normaliseHost', () => {
 describe('hostOf', () => {
   test('reads the hostname of a page URL', () => {
     expect(hostOf('https://Site.com/a/b')).toBe('site.com')
+  })
+
+  test('reads the absolute form as the host it is', () => {
+    // So a rule written from here still matches after `normaliseHost` has been
+    // over it on the way out of storage.
+    expect(hostOf('https://example.com./a')).toBe('example.com')
   })
 
   test('is null for a URL with no host, and for none at all', () => {

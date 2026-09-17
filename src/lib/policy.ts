@@ -78,6 +78,9 @@ export function normaliseHost(typed: string): string | null {
   host = host.replace(/[/?#].*$/, '')
   host = host.replace(/:\d+$/, '')
   host = host.replace(/^\*?\./, '')
+  // `example.com.` is the absolute form of `example.com`, and pastes out of an
+  // address bar that way. One dot: `example.com..` is a typo, not a host.
+  host = host.replace(/\.$/, '')
   return HOST.test(host) ? host : null
 }
 
@@ -93,7 +96,11 @@ export function hostOf(url: string | undefined): string | null {
   try {
     const { protocol, hostname } = new URL(url)
     if (protocol !== 'http:' && protocol !== 'https:') return null
-    return hostname === '' ? null : hostname.toLowerCase()
+    // Trailing dot dropped here too, so the two sides agree on one spelling:
+    // a rule stored from this host is read back through `normaliseHost`, and
+    // a host that came out of it would stop matching the tab it was written for.
+    const host = hostname.toLowerCase().replace(/\.$/, '')
+    return host === '' ? null : host
   } catch {
     return null
   }
