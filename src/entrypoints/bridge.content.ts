@@ -1,5 +1,6 @@
 import { LIMITS_KEY, normalise } from '@/lib/limits'
 import { POLICY_KEY } from '@/lib/policy'
+import { replyFor } from '@/lib/replies'
 import {
   PAGE_COMMAND,
   PAGE_EVENT,
@@ -35,36 +36,6 @@ const PREPARE_TIMEOUT_MS = 20_000
  * of it for a local operation is the part worth cutting.
  */
 const PURGE_TIMEOUT_MS = 5_000
-
-/**
- * A `prepared` reply, believed only as far as it can be checked.
- *
- * The hook shares its document with the page, so the page can dispatch
- * `blobdl:event` too — and a forged reply would travel from here to
- * `chrome.downloads`, which fetches with the extension's privileges rather than
- * the page's. The one thing the hook ever mints is a `blob:` URL for this
- * frame's own origin, so anything else is not a reply, whatever it claims.
- */
-const MALFORMED = { ok: false, error: 'The page sent a malformed reply.' } as const
-
-/** A bare done-or-why-not, kept to that shape and nothing the page bolted on. */
-function ack(result: PurgeResult): PurgeResult {
-  if (typeof result !== 'object' || result === null) return MALFORMED
-  if (result.ok === true) return { ok: true }
-  return typeof result.error === 'string' ? { ok: false, error: result.error } : MALFORMED
-}
-
-function checked(result: PrepareResult): PrepareResult {
-  const malformed: PrepareResult = MALFORMED
-  if (typeof result !== 'object' || result === null) return malformed
-  if (result.ok !== true) {
-    return result.ok === false && typeof result.error === 'string' ? result : malformed
-  }
-  if (typeof result.url !== 'string' || typeof result.filename !== 'string') return malformed
-  // `blob:null/…` for an opaque origin, which is the form a sandboxed frame's
-  // own URLs take too — it is still that frame and nothing else.
-  return result.url.startsWith(`blob:${location.origin}/`) ? result : malformed
-}
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -141,9 +112,13 @@ export default defineContentScript({
       if (message.type !== 'prepared' && message.type !== 'purged') return
       if (typeof message.requestId !== 'string') return
       const waiter = pending.get(message.requestId)
-      if (!waiter || waiter.expect !== message.type) return
+      if (!waiter) return
+      // `null` means this is not that waiter's reply — it stays pending, so a
+      // forged one cannot consume the slot the real answer is coming back to.
+      const settled = replyFor(waiter.expect, message, location.origin)
+      if (settled === null) return
       pending.delete(message.requestId)
-      waiter.settle(message.type === 'prepared' ? checked(message.result) : ack(message.result))
+      waiter.settle(settled)
     })
 
     /**

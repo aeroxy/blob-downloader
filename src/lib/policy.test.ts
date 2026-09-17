@@ -39,6 +39,19 @@ describe('normaliseHost', () => {
     expect(normaliseHost('[not-an-address]')).toBeNull()
   })
 
+  test('brackets a bare literal, which is how one gets typed from memory', () => {
+    expect(normaliseHost('::1')).toBe('[::1]')
+    expect(normaliseHost('2001:db8::1')).toBe('[2001:db8::1]')
+    expect(normaliseHost('::ffff:1.2.3.4')).toBe('[::ffff:1.2.3.4]')
+    // Not everything with a colon: a port is still a port, including on a host
+    // whose name happens to be spelled in hex digits.
+    expect(normaliseHost('example.com:8080')).toBe('example.com')
+    expect(normaliseHost('127.0.0.1:8080')).toBe('127.0.0.1')
+    expect(normaliseHost('localhost:3000')).toBe('localhost')
+    expect(normaliseHost('db:5432')).toBe('db')
+    expect(normaliseHost('cafe:8080')).toBe('cafe')
+  })
+
   test('accepts the absolute form, which is the same host', () => {
     expect(normaliseHost('example.com.')).toBe('example.com')
     expect(normaliseHost('https://www.example.com./watch')).toBe('www.example.com')

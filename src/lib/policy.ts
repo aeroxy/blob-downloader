@@ -85,6 +85,14 @@ export function normaliseHost(typed: string): string | null {
   if (host === '') return null
   host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
   host = host.replace(/[/?#].*$/, '')
+  // Bracketed before the port is stripped, or `::1` loses its last group to
+  // that rule. Typed from memory rather than pasted — the address bar shows the
+  // brackets. Two colons at least: every IPv6 literal has that many, and one
+  // colon is a port on a host that happens to be spelled in hex digits, which
+  // `db:5432` and `cafe:8080` both are.
+  if (!host.startsWith('[') && /^[0-9a-f]*:[0-9a-f.]*:[0-9a-f.:]*$/.test(host)) {
+    host = `[${host}]`
+  }
   host = host.replace(/:\d+$/, '')
   host = host.replace(/^\*?\./, '')
   // `example.com.` is the absolute form of `example.com`, and pastes out of an
