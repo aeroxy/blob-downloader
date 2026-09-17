@@ -3,6 +3,7 @@ import {
   allows,
   capture,
   covers,
+  coveringParents,
   DEFAULT_POLICY,
   hostOf,
   normaliseHost,
@@ -28,6 +29,16 @@ describe('normaliseHost', () => {
     expect(normaliseHost('localhost')).toBe('localhost')
   })
 
+  test('accepts a bracketed IPv6 literal, which is what `hostOf` returns for one', () => {
+    // Refusing it would not be neutral: the per-site switch writes what `hostOf`
+    // gave it, and a rule dropped on the next read takes the exclusion with it.
+    expect(normaliseHost('[::1]')).toBe('[::1]')
+    expect(normaliseHost('http://[::1]:8080/x')).toBe('[::1]')
+    expect(normaliseHost('[2001:DB8::1]')).toBe('[2001:db8::1]')
+    expect(normaliseHost('[::ffff:1.2.3.4]')).toBe('[::ffff:1.2.3.4]')
+    expect(normaliseHost('[not-an-address]')).toBeNull()
+  })
+
   test('accepts the absolute form, which is the same host', () => {
     expect(normaliseHost('example.com.')).toBe('example.com')
     expect(normaliseHost('https://www.example.com./watch')).toBe('www.example.com')
@@ -42,6 +53,16 @@ describe('normaliseHost', () => {
 describe('hostOf', () => {
   test('reads the hostname of a page URL', () => {
     expect(hostOf('https://Site.com/a/b')).toBe('site.com')
+  })
+
+  test('an IPv6 page round-trips through a rule instead of losing it', () => {
+    const here = hostOf('http://[::1]:8080/test/blob-test.html')
+    expect(here).toBe('[::1]')
+    const off = capture(DEFAULT_POLICY, here!, false)
+    expect(allows(off, here)).toBe(false)
+    // The read storage gets on the way back out. Before IPv6 was accepted this
+    // dropped the rule and the site started capturing again.
+    expect(allows(normalisePolicy(off), here)).toBe(false)
   })
 
   test('reads the absolute form as the host it is', () => {
@@ -137,6 +158,29 @@ describe('capture', () => {
     expect(policy.deny).toEqual([{ host: 'example.com', on: false }])
   })
 
+  test('and the siblings that parent covered come with it', () => {
+    // The blast radius, pinned: the checkbox says `www.example.com`, and the
+    // apex and every other subdomain change with it. There is no way to keep
+    // the parent and exempt one child — `covers` has no exceptions — so the
+    // popup names the rules a click will take before it takes them.
+    const before: Policy = { mode: 'denylist', allow: [], deny: [on('example.com')] }
+    expect(allows(before, 'other.example.com')).toBe(false)
+    expect(allows(before, 'example.com')).toBe(false)
+
+    const after = capture(before, 'www.example.com', true)
+    expect(allows(after, 'other.example.com')).toBe(true)
+    expect(allows(after, 'example.com')).toBe(true)
+  })
+
+  test('mirrored under an allowlist: switching one off silences the domain', () => {
+    const before: Policy = { mode: 'allowlist', allow: [on('example.com')], deny: [] }
+    expect(allows(before, 'other.example.com')).toBe(true)
+
+    const after = capture(before, 'www.example.com', false)
+    expect(allows(after, 'www.example.com')).toBe(false)
+    expect(allows(after, 'other.example.com')).toBe(false)
+  })
+
   test('switching a site on writes the exact host, not the parent it sits under', () => {
     const policy = capture(
       { mode: 'allowlist', allow: [{ host: 'example.com', on: false }], deny: [] },
@@ -195,5 +239,34 @@ describe('normalisePolicy', () => {
       allow: [{ host: 'www.example.com', on: false }],
       deny: [],
     })
+  })
+})
+
+describe('coveringParents', () => {
+  test('names the enabled rules above a host, not the host itself', () => {
+    const policy: Policy = {
+      mode: 'denylist',
+      allow: [],
+      deny: [on('example.com'), on('www.example.com'), on('other.com')],
+    }
+    expect(coveringParents(policy, 'www.example.com')).toEqual(['example.com'])
+  })
+
+  test('a suspended rule takes nothing with it, so it is not named', () => {
+    const policy: Policy = {
+      mode: 'denylist',
+      allow: [],
+      deny: [{ host: 'example.com', on: false }],
+    }
+    expect(coveringParents(policy, 'www.example.com')).toEqual([])
+  })
+
+  test('reads the list the mode is actually using, and neither under `all`', () => {
+    const allow = [on('example.com')]
+    expect(coveringParents({ mode: 'allowlist', allow, deny: [] }, 'www.example.com')).toEqual([
+      'example.com',
+    ])
+    expect(coveringParents({ mode: 'denylist', allow, deny: [] }, 'www.example.com')).toEqual([])
+    expect(coveringParents({ mode: 'all', allow, deny: [] }, 'www.example.com')).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import { humanSize } from '@/lib/format'
 import { BOUNDS, LIMITS_KEY, fromMB, normalise, toMB } from '@/lib/limits'
 import {
   allows,
+  coveringParents,
   capture,
   hostOf,
   listKey,
@@ -74,9 +75,20 @@ function empty(): HTMLElement {
   // page with no host counts as covered, and would otherwise be told to reload
   // — advice that can never work on a page no content script reaches.
   if (hereHost === null) {
+    // Which way it falls still matters: `Only these sites` excludes a page with
+    // no host by definition, and there is no switch to change that — so say so
+    // rather than leaving the absence of a switch to be read either way.
     div.innerHTML = `
       <p><strong>No site here.</strong> This page has no http(s) address, so no
          site rule matches it — which is why there is no switch for it above.</p>
+      <p>${
+        capturingHere
+          ? `Capture is still on for pages like this one, where a content script
+             can reach them; it just cannot be turned off here by name.`
+          : `<strong>Only these sites</strong> is on, and a page with no host
+             cannot go on that list — so nothing here is captured, and nothing
+             in this popup will change that.`
+      }</p>
       <p>A browser page — <code>chrome://</code>, the extensions list, a PDF
          viewer — is out of reach of any extension's content scripts. A local
          <code>file://</code> page needs <em>Allow access to file URLs</em> on
@@ -411,6 +423,16 @@ async function wireSites(here: string | null): Promise<void> {
     if (here !== null) {
       siteOn.checked = on
       siteLabel.textContent = on ? `Capturing on ${here}` : `Not capturing on ${here}`
+      // What this click would take with it. Only in the direction that suspends
+      // covering rules — off under an allowlist, on under a denylist — because
+      // the other direction writes the one host and touches nothing above it.
+      const suspends = policy.mode === 'allowlist' ? on : !on
+      const parents = suspends ? coveringParents(policy, here) : []
+      site.title =
+        parents.length === 0
+          ? ''
+          : `This also suspends the rule for ${parents.join(' and ')}, so ` +
+            `${parents.length === 1 ? 'its' : 'their'} other subdomains change with it.`
     }
 
     const key = listKey(policy.mode)

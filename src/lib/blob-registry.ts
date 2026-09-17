@@ -210,7 +210,15 @@ function forget(entry: BlobEntry): void {
   blobEntries.delete(entry.id)
 }
 
-/** Keep the list to a length a human can read, dropping the oldest. */
+/**
+ * Keep the list to a length a human can read, dropping the oldest.
+ *
+ * Blobs only. Tracks have no equivalent cap and do not need one: a page has a
+ * handful of SourceBuffers, each already bounded by `trackBytes`, and a segment
+ * is only ever held because the page appended it — which means the page
+ * allocated those bytes first. A count cap would have to cut off a legitimate
+ * multi-track stream to protect against memory the page is already spending.
+ */
 function trim(): void {
   if (blobEntries.size <= MAX_ITEMS) return
   const oldestFirst = [...blobEntries.values()].sort((a, b) => a.createdAt - b.createdAt)

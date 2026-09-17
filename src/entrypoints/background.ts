@@ -190,6 +190,10 @@ async function purgeAll(tabId: number): Promise<PurgeResult> {
 
   if (gone.length > 0) await dropFrames(tabId, gone)
   if (refused.length === 0) return { ok: true }
+  // The popup gets a line; the console gets all of them. A page with several
+  // frames refusing for different reasons is exactly when the second and third
+  // reason are the ones worth having.
+  if (refused.length > 1) console.warn('[blobdl] frames refused to purge:', refused)
   return {
     ok: false,
     error:

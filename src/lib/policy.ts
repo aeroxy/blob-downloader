@@ -63,6 +63,15 @@ export const listKey = (mode: Mode): 'allow' | 'deny' | null =>
 const HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/
 
 /**
+ * A bracketed IPv6 literal, which is the form `hostOf` hands back for one.
+ *
+ * A shape check rather than a validator: the browser has already parsed the
+ * address by the time it reaches here, and a malformed one only ever becomes a
+ * rule that matches nothing.
+ */
+const IPV6 = /^\[[0-9a-f:.]+\]$/
+
+/**
  * A hostname out of whatever was typed.
  *
  * People paste the address bar, so a scheme, a path, a port and a `www.` are
@@ -81,6 +90,11 @@ export function normaliseHost(typed: string): string | null {
   // `example.com.` is the absolute form of `example.com`, and pastes out of an
   // address bar that way. One dot: `example.com..` is a typo, not a host.
   host = host.replace(/\.$/, '')
+  // Accepted rather than refused, because refusing it is not neutral: `hostOf`
+  // returns `[::1]` for a page served there, so the per-site switch would write
+  // a rule this function drops on the next read — and the site would quietly go
+  // back to capturing with only a stray mode change left behind.
+  if (host.startsWith('[')) return IPV6.test(host) ? host : null
   return HOST.test(host) ? host : null
 }
 
@@ -109,6 +123,23 @@ export function hostOf(url: string | undefined): string | null {
 /** A rule covers its own host and every subdomain of it, and nothing else. */
 export const covers = (rule: string, host: string): boolean =>
   host === rule || host.endsWith(`.${rule}`)
+
+/**
+ * The enabled rules that cover `host` without being it.
+ *
+ * What a per-site switch takes with it: turning a site off under an allowlist,
+ * or on under a denylist, suspends every rule covering it — a parent domain's
+ * included — because leaving the parent in place would leave the site matched
+ * from above and the checkbox visibly doing nothing. That is the right
+ * behaviour and the wrong surprise, so the popup names them before the click.
+ */
+export function coveringParents(policy: Policy, host: string): string[] {
+  const key = listKey(policy.mode)
+  if (key === null) return []
+  return policy[key]
+    .filter((site) => site.on && site.host !== host && covers(site.host, host))
+    .map((site) => site.host)
+}
 
 /**
  * Anything at all into a usable policy.

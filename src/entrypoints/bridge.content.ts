@@ -27,6 +27,16 @@ import {
 const PREPARE_TIMEOUT_MS = 20_000
 
 /**
+ * Purge gets a shorter one, because it does not leave the page: clearing the
+ * stores and dropping the rows takes no measurable time, so anything past a
+ * moment means nothing is listening — an extension reloaded under a live page
+ * leaves exactly that, a bridge with no hook. The popup stops polling while a
+ * click is in flight, so the wait is a frozen list either way; twenty seconds
+ * of it for a local operation is the part worth cutting.
+ */
+const PURGE_TIMEOUT_MS = 5_000
+
+/**
  * A `prepared` reply, believed only as far as it can be checked.
  *
  * The hook shares its document with the page, so the page can dispatch
@@ -97,10 +107,13 @@ export default defineContentScript({
     ): void => {
       const requestId = `r${++requests}`
       pending.set(requestId, { expect, settle: sendResponse })
-      setTimeout(() => {
-        if (!pending.delete(requestId)) return
-        sendResponse(timedOut)
-      }, PREPARE_TIMEOUT_MS)
+      setTimeout(
+        () => {
+          if (!pending.delete(requestId)) return
+          sendResponse(timedOut)
+        },
+        expect === 'purged' ? PURGE_TIMEOUT_MS : PREPARE_TIMEOUT_MS,
+      )
       command(build(requestId))
     }
 
