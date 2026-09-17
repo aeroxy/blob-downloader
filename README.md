@@ -68,7 +68,7 @@ service worker, and there is no offscreen document.
 | `src/entrypoints/hook.content.ts` | MAIN world: installs the patches, answers for the page |
 | `src/entrypoints/bridge.content.ts` | The pipe between the page's world and the extension |
 | `src/entrypoints/background.ts` | Aggregates frames, drives `chrome.downloads`, paints the badge |
-| `src/entrypoints/popup/` | The list, and the Save / Clear / Del buttons |
+| `src/entrypoints/popup/` | The list, and the Save / Remove / Clear all buttons |
 | `src/lib/blob-registry.ts` | The patches and everything they record |
 | `src/lib/segment-store.ts` | MediaSource segments, and the cap on them |
 | `src/lib/format.ts` | Naming a file for bytes that arrived without a name |
