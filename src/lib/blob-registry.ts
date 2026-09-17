@@ -92,6 +92,17 @@ interface TrackEntry {
    */
   sawInit: boolean
   ended: boolean
+  /**
+   * The popup has been told this track exists.
+   *
+   * Kept here rather than inferred from the store, because an empty store is
+   * two different situations: nothing appended yet, and a first segment that
+   * was refused for being over the cap. The second one stays empty for the
+   * life of the stream, so a "has it anything yet" test would announce every
+   * append from then on — the message storm the first-append rule exists to
+   * avoid, in exactly the case that produces the most appends.
+   */
+  announced: boolean
   /** Removed by the user: no longer listed, and appends are ignored from here on. */
   dropped: boolean
   stream: StreamEntry | null
@@ -288,6 +299,7 @@ function noteSourceBuffer(source: MediaSource, buffer: SourceBuffer, mime: strin
     store: new SegmentStore(limits.trackBytes),
     createdAt: Date.now(),
     sawInit: true,
+    announced: false,
     ended: false,
     dropped: false,
     stream,
@@ -310,6 +322,7 @@ function adoptSourceBuffer(buffer: SourceBuffer, mime: string): TrackEntry {
     store: new SegmentStore(limits.trackBytes),
     createdAt: Date.now(),
     sawInit: false,
+    announced: false,
     ended: false,
     dropped: false,
     stream: null,
@@ -328,12 +341,14 @@ function noteAppend(buffer: SourceBuffer, data: ArrayBuffer | ArrayBufferView): 
   // a brand-new row that starts growing again — deleting has to actually stop
   // the memory going up.
   if (entry.dropped) return
-  const first = entry.store.count === 0
+  const first = !entry.announced
+  entry.announced = true
   entry.store.append(data)
   // A playing video appends every few hundred milliseconds, so announcing each
   // one would be a message storm for the length of the film. The first is worth
-  // it — that is what turns "detected" into "saveable"; growth after that is
-  // picked up by the hook's own poll.
+  // it — that is what turns "detected" into "saveable", and it is also what
+  // carries the refusal when that first segment was itself over the cap;
+  // growth after that is picked up by the hook's own poll.
   if (first) notify()
 }
 
