@@ -117,13 +117,17 @@ affect whether the file will be usable:
 
 ## Giving the memory back
 
-Everything the extension can save, it is holding in the page's own memory — that
-is what makes a revoked blob recoverable and a stream saveable at all. The header
-says how much (`… held`), and there are two ways to hand it back:
+Most of what the extension can save, it is holding in the page's own memory —
+that is what makes a revoked blob recoverable and a stream saveable at all. The
+header's `… held` counts only those. A blob that arrived once the frame was over
+its retained-blob budget is tracked but not held, and its row says so: it stays
+saveable through the page's own URL, and is gone the moment the page revokes
+that. There are two ways to hand back what is held:
 
-- **Remove**, on a row: drops that row and frees the bytes behind it. A removed
-  stream stops recording for good, rather than starting a fresh row on the next
-  segment and climbing straight back up.
+- **Remove**, on a row: drops that row and frees whatever was held behind it —
+  nothing, on a row that was never retained. A removed stream stops recording
+  for good, rather than starting a fresh row on the next segment and climbing
+  straight back up.
 - **Clear all**, in the header: the same for every item in every frame of the
   page. It asks first — one click arms it, the second empties the page — because
   there is no undo and a stream that has been playing for an hour can only be got
